@@ -1,0 +1,1 @@
+ G:\\Code\\DrinkWater\\drinkwater\\.dart_tool\\flutter_build\\588a750c61a2ce5b97be43dd9137ffed\\native_assets.json: 

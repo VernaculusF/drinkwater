@@ -1,0 +1,36 @@
+name: drinkwater
+description: Тупые напоминания пить воду
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Уведомления (с поддержкой периодических напоминаний)
+  flutter_local_notifications: ^17.0.0
+  timezone: ^0.9.0
+  
+  # Хранение данных
+  shared_preferences: ^2.2.3
+  
+  # Виджет
+  home_widget: ^0.6.0
+  
+  # UI
+  cupertino_icons: ^1.0.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  
+  # Ассеты
+  assets:
+    - assets/phrases.json
