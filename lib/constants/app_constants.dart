@@ -47,8 +47,8 @@ class AppConstants {
   static const String keyLastDrinkAt = 'last_drink_at';
   
   // Яндекс РСЯ
-  // ВАЖНО: Замените на ваш реальный Block ID из личного кабинета Яндекс РСЯ
-  static const String yandexAdBannerUnitId = 'demo-banner-yandex'; // Тестовый ID
+  // Тестовый блок для проверки интеграции
+  static const String yandexAdBannerUnitId = 'R-M-18792287-1';
   
   // Уровни токсичности
   static const String toxicityLight = 'light';
@@ -62,12 +62,10 @@ class AppConstants {
   };
   
   // Интервалы напоминаний (в часах)
-  // 5 минут = 0.083 часа для тестирования виджета
-  static const List<double> availableIntervals = [0.083, 1, 2, 3];
+  static const List<double> availableIntervals = [1, 2, 3];
   
   /// Форматирование интервала для отображения
   static String formatInterval(double hours) {
-    if (hours < 0.1) return '5 мин';
     return '${hours.toInt()} ч';
   }
   

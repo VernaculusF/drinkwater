@@ -415,21 +415,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             label: Text(AppLocalizations.resetCounter),
           ),
 
-          const SizedBox(height: 8),
-
-          // Кнопка тестового уведомления
-          OutlinedButton.icon(
-            onPressed: () async {
-              await _notificationService.sendTestNotification();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('🧪 Тестовое уведомление отправлено')),
-                );
-              }
-            },
-            icon: const Icon(Icons.notifications),
-            label: const Text('Тестовое уведомление'),
-          ),
         ],
       ),
     );

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
 import 'constants/app_constants.dart';
 import 'constants/app_localizations.dart';
+
+bool _isFirstLaunch = false;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,6 +23,12 @@ Future<void> _initializeServices() async {
     // SharedPreferences
     final storageService = StorageService();
     await storageService.init();
+    
+    // Проверяем, это первый запуск?
+    final settings = await storageService.loadSettings();
+    _isFirstLaunch = settings.glassesCount == AppConstants.defaultGlassesCount &&
+        settings.drankToday == 0 &&
+        settings.lastResetDate == DateTime.now().toString().split(' ')[0];
     
     // Уведомления - инициализируем ВСЕГДА
     final notificationService = NotificationService();
@@ -72,7 +81,7 @@ class DrinkWaterApp extends StatelessWidget {
       // Автоматический выбор темы по системе
       themeMode: ThemeMode.system,
       
-      home: const HomeScreen(),
+      home: _isFirstLaunch ? const OnboardingScreen() : const HomeScreen(),
     );
   }
 }

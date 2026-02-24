@@ -114,7 +114,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       final screenWidth = MediaQuery.of(context).size.width.toInt();
       
-      _bannerAd = _adService.createBanner(
+      final bannerAd = _adService.createBanner(
         adUnitId: AppConstants.yandexAdBannerUnitId,
         adSize: BannerAdSize.inline(
           width: screenWidth,
@@ -134,6 +134,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           });
         },
       );
+      if (mounted) {
+        setState(() {
+          _bannerAd = bannerAd;
+          _isBannerLoaded = false;
+          _bannerError = null;
+        });
+      }
     } catch (e) {
       print('⚠️ Ошибка инициализации рекламы: $e');
     }
@@ -373,15 +380,34 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
 
                 // Баннер Яндекс РСЯ
-                if (_isBannerLoaded && _bannerAd != null)
+                if (_bannerAd != null)
                   Container(
                     alignment: Alignment.center,
                     height: 60,
                     margin: const EdgeInsets.symmetric(horizontal: 8),
-                    child: AdWidget(bannerAd: _bannerAd!),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        AdWidget(bannerAd: _bannerAd!),
+                        if (!_isBannerLoaded)
+                          Text(
+                            _bannerError == null
+                                ? 'Загрузка рекламы...'
+                                : 'Ошибка рекламы: $_bannerError',
+                            style: TextStyle(
+                              color: Colors.grey[500],
+                              fontSize: 12,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                      ],
+                    ),
                   )
                 else
-                  // Заглушка пока баннер не загружен
                   Container(
                     height: 60,
                     margin: const EdgeInsets.symmetric(horizontal: 8),
@@ -391,9 +417,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     child: Center(
                       child: Text(
-                        _bannerError == null
-                            ? 'Загрузка рекламы...'
-                            : 'Ошибка рекламы: $_bannerError',
+                        'Загрузка рекламы...',
                         style: TextStyle(
                           color: Colors.grey[500],
                           fontSize: 12,

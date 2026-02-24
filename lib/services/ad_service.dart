@@ -60,20 +60,6 @@ class AdService {
     return _bannerAd!;
   }
 
-  /// Загрузить баннер
-  Future<void> loadBanner() async {
-    if (_bannerAd == null) {
-      AppConstants.debugLog('⚠️ Баннер не создан. Вызовите createBanner() первым.');
-      return;
-    }
-
-    try {
-      _bannerAd!.loadAd(adRequest: const AdRequest());
-    } catch (e) {
-      AppConstants.debugLog('⚠️ Ошибка загрузки баннера: $e');
-    }
-  }
-
   /// Проверка, загружен ли баннер
   bool get isBannerLoaded => _isBannerLoaded;
 

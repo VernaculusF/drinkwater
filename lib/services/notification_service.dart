@@ -235,27 +235,4 @@ class NotificationService {
     await _notifications.cancelAll();
     AppConstants.debugLog('✅ Все уведомления отменены');
   }
-
-  /// Отправить тестовое уведомление
-  Future<void> sendTestNotification() async {
-    if (!_initialized) await init();
-
-    final phraseService = PhraseService();
-    final storageService = StorageService();
-    final settings = await storageService.loadSettings();
-    
-    final testPhrase = phraseService.getRandomPhrase(settings.toxicityLevel);
-    final currentCount = await storageService.getDrankCounter();
-    final progressText = '$currentCount/${settings.glassesCount} 💧';
-    
-    await showNotification(
-      title: '🧪 Тестовое уведомление',
-      body: testPhrase,
-      withSound: settings.notificationSound,
-      withVibration: settings.notificationVibration,
-      progressText: progressText,
-    );
-    
-    AppConstants.debugLog('✅ Тестовое уведомление отправлено');
-  }
 }

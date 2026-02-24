@@ -67,9 +67,9 @@
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
-        <!-- Яндекс РСЯ (шаблон). Если в кабинете РСЯ выдан App ID, замените значение ниже. -->
+        <!-- Яндекс РСЯ: App ID -->
         <meta-data
-            android:name="com.yandex.mobileads.18792287"
+            android:name="com.yandex.mobileads.APPLICATION_ID"
             android:value="18792287" />
 
         <meta-data
