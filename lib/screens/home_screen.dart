@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:yandex_mobileads/mobile_ads.dart';
 import '../models/app_settings.dart';
 import '../services/storage_service.dart';
 import '../services/phrase_service.dart';
 import '../services/notification_service.dart';
 import '../services/widget_service.dart';
+import '../services/ad_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_localizations.dart';
 import '../widgets/confetti_widget.dart';
@@ -23,6 +25,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final PhraseService _phraseService = PhraseService();
   final WidgetService _widgetService = WidgetService();
   final NotificationService _notificationService = NotificationService();
+  final AdService _adService = AdService();
   
   AppSettings? _settings;
   String _currentPhrase = '';
@@ -30,6 +33,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _showConfetti = false;
   bool _isPressed = false; // Запрет повторного нажатия
   DateTime? _lastPressTime; // Время последнего нажатия
+  BannerAd? _bannerAd;
+  bool _isBannerLoaded = false;
+  String? _bannerError;
   
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -42,7 +48,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     // Обработка нажатия на уведомление
     _notificationService.onNotificationTapped = (payload) {
       if (payload == 'water_reminder') {
-        print('💧 Вызов выпил из уведомления');
+        AppConstants.debugLog('💧 Вызов выпил из уведомления');
         _onDrinkPressed();
       }
     };
@@ -60,6 +66,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _animationController.dispose();
+    _adService.disposeBanner();
     super.dispose();
   }
 
@@ -67,18 +74,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     
-    await _phraseService.loadPhrases();
     final settings = await _storage.loadSettings();
     
     // Инициализируем WidgetService
     await _widgetService.init();
     await _widgetService.initializeWidget();
     
+    // Инициализируем рекламу после первого кадра (нужен MediaQuery)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _initAds();
+      }
+    });
+    
     // Если уведомления включены, запланируем их
     if (settings.notificationsEnabled) {
       await _notificationService.scheduleNotifications(
         intervalHours: settings.intervalHours,
       );
+    } else {
+      await _notificationService.cancelAllNotifications();
     }
     
     setState(() {
@@ -88,6 +103,41 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _isLoading = false;
       _lastPressTime = DateTime.now();
     });
+  }
+
+  /// Инициализация рекламы
+  Future<void> _initAds() async {
+    if (_bannerAd != null) return;
+
+    try {
+      await _adService.init();
+
+      final screenWidth = MediaQuery.of(context).size.width.toInt();
+      
+      _bannerAd = _adService.createBanner(
+        adUnitId: AppConstants.yandexAdBannerUnitId,
+        adSize: BannerAdSize.inline(
+          width: screenWidth,
+          maxHeight: 60,
+        ),
+        onAdLoaded: () {
+          setState(() {
+            _isBannerLoaded = true;
+            _bannerError = null;
+          });
+        },
+        onAdFailedToLoad: (error) {
+          print('⚠️ Не удалось загрузить баннер: $error');
+          setState(() {
+            _isBannerLoaded = false;
+            _bannerError = error;
+          });
+        },
+      );
+    } catch (e) {
+      print('⚠️ Ошибка инициализации рекламы: $e');
+    }
+
   }
 
   /// Проверка, истекло ли время (показывать ли текст)
@@ -138,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _isPressed = false;
       if (mounted) setState(() {});
       
-      print('✅ Кнопка разблокирована (была заблокирована на ${_settings!.intervalHours.toStringAsFixed(1)} часов)');
+      AppConstants.debugLog('✅ Кнопка разблокирована (была заблокирована на ${_settings!.intervalHours.toStringAsFixed(1)} часов)');
     }
   }
 
@@ -148,8 +198,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => SettingsScreen(currentSettings: _settings!),
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => 
+            SettingsScreen(currentSettings: _settings!),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          // Плавная анимация с fade + slight slide
+          const begin = Offset(0.0, 0.03);
+          const end = Offset.zero;
+          const curve = Curves.easeInOutCubic;
+          
+          var slideTween = Tween(begin: begin, end: end).chain(
+            CurveTween(curve: curve),
+          );
+          var fadeTween = Tween<double>(begin: 0.0, end: 1.0).chain(
+            CurveTween(curve: curve),
+          );
+          
+          return SlideTransition(
+            position: animation.drive(slideTween),
+            child: FadeTransition(
+              opacity: animation.drive(fadeTween),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 300),
       ),
     );
 
@@ -248,12 +321,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: AppConstants.primaryColor.withOpacity(_isPressed ? 0.2 : 0.5),
+                                color: AppConstants.primaryColor.withValues(alpha: _isPressed ? 51 : 128),
                                 blurRadius: 25,
                                 offset: const Offset(0, 12),
                               ),
                               BoxShadow(
-                                color: AppConstants.accentColor.withOpacity(_isPressed ? 0.15 : 0.3),
+                                color: AppConstants.accentColor.withValues(alpha: _isPressed ? 38 : 77),
                                 blurRadius: 15,
                                 offset: const Offset(5, 8),
                               ),
@@ -299,24 +372,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                   ),
 
-                // Место для баннера (заглушка)
-                Container(
-                  height: 60,
-                  margin: const EdgeInsets.symmetric(horizontal: 8),
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Center(
-                    child: Text(
-                      '[ AdMob баннер v1.2 ]',
-                      style: TextStyle(
-                        color: Colors.grey[500],
-                        fontSize: 12,
+                // Баннер Яндекс РСЯ
+                if (_isBannerLoaded && _bannerAd != null)
+                  Container(
+                    alignment: Alignment.center,
+                    height: 60,
+                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                    child: AdWidget(bannerAd: _bannerAd!),
+                  )
+                else
+                  // Заглушка пока баннер не загружен
+                  Container(
+                    height: 60,
+                    margin: const EdgeInsets.symmetric(horizontal: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[200],
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        _bannerError == null
+                            ? 'Загрузка рекламы...'
+                            : 'Ошибка рекламы: $_bannerError',
+                        style: TextStyle(
+                          color: Colors.grey[500],
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
                     ),
                   ),
-                ),
                 const SizedBox(height: 8),
               ],
             ),

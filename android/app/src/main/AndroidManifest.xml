@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Разрешения для рекламы -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <!-- Разрешения для уведомлений (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     
@@ -7,6 +11,9 @@
     
     <!-- Разрешение на переинициализацию уведомлений при перезагрузке -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    
+    <!-- Разрешение для точного планирования уведомлений (Android 12+) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     
     <application
         android:label="drinkwater"
@@ -60,6 +67,11 @@
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <!-- Яндекс РСЯ (шаблон). Если в кабинете РСЯ выдан App ID, замените значение ниже. -->
+        <meta-data
+            android:name="com.yandex.mobileads.18792287"
+            android:value="18792287" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

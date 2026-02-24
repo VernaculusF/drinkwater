@@ -1,4 +1,5 @@
 import 'package:home_widget/home_widget.dart';
+import '../constants/app_constants.dart';
 import 'storage_service.dart';
 import 'phrase_service.dart';
 
@@ -10,14 +11,18 @@ class WidgetService {
 
   final StorageService _storage = StorageService();
   final PhraseService _phraseService = PhraseService();
+  int? _lastDrank;
+  int? _lastTotal;
+  // ignore: unused_field
+  String? _lastPhrase;
 
   /// Инициализация сервиса виджета
   Future<void> init() async {
     try {
       // Инициализируем home_widget
-      print('✅ WidgetService инициализирован');
+      AppConstants.debugLog('✅ WidgetService инициализирован');
     } catch (e) {
-      print('❌ Ошибка инициализации WidgetService: $e');
+      AppConstants.debugLog('❌ Ошибка инициализации WidgetService: $e');
     }
   }
 
@@ -25,6 +30,10 @@ class WidgetService {
   Future<void> updateWidget() async {
     try {
       final settings = await _storage.loadSettings();
+      if (_lastDrank == settings.drankToday && _lastTotal == settings.glassesCount) {
+        return;
+      }
+
       final phrase = _phraseService.getRandomPhrase(settings.toxicityLevel);
       
       // Батчим все операции в один запрос для оптимизации
@@ -36,10 +45,13 @@ class WidgetService {
       
       // Уведомляем систему об обновлении виджета
       await HomeWidget.updateWidget(name: 'DrinkWaterWidget');
-      
-      print('✅ Виджет обновлён: ${settings.drankToday} / ${settings.glassesCount}');
+
+      _lastDrank = settings.drankToday;
+      _lastTotal = settings.glassesCount;
+      _lastPhrase = phrase;
+      AppConstants.debugLog('✅ Виджет обновлён: ${settings.drankToday} / ${settings.glassesCount}');
     } catch (e) {
-      print('❌ Ошибка обновления виджета: $e');
+      AppConstants.debugLog('❌ Ошибка обновления виджета: $e');
     }
   }
 
@@ -64,10 +76,13 @@ class WidgetService {
         'phrase',
         phrase,
       );
-      
-      print('✅ Виджет инициализирован');
+
+      _lastDrank = settings.drankToday;
+      _lastTotal = settings.glassesCount;
+      _lastPhrase = phrase;
+      AppConstants.debugLog('✅ Виджет инициализирован');
     } catch (e) {
-      print('⚠️ Ошибка инициализации данных виджета: $e');
+      AppConstants.debugLog('⚠️ Ошибка инициализации данных виджета: $e');
     }
   }
 

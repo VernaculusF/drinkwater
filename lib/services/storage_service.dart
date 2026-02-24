@@ -9,6 +9,10 @@ class StorageService {
   StorageService._internal();
 
   SharedPreferences? _prefs;
+  AppSettings? _cachedSettings;
+  DateTime? _cacheTime;
+  DateTime? _cachedLastDrinkAt;
+  static const Duration _cacheTtl = Duration(seconds: 10);
 
   /// Инициализация SharedPreferences
   Future<void> init() async {
@@ -27,34 +31,56 @@ class StorageService {
     final today = DateTime.now().toIso8601String().substring(0, 10);
     await _prefs?.setInt(AppConstants.keyDrankToday, 0);
     await _prefs?.setString(AppConstants.keyLastResetDate, today);
+    await _prefs?.remove(AppConstants.keyLastDrinkAt);
+
+    if (_cachedSettings != null) {
+      _cachedSettings = _cachedSettings!.copyWith(
+        drankToday: 0,
+        lastResetDate: today,
+      );
+      _cacheTime = DateTime.now();
+    }
+
+    _cachedLastDrinkAt = null;
   }
 
   /// Загрузка настроек
   Future<AppSettings> loadSettings() async {
     if (_prefs == null) await init();
 
+    final now = DateTime.now();
+    final today = now.toIso8601String().substring(0, 10);
+    if (_cachedSettings != null &&
+        _cacheTime != null &&
+        now.difference(_cacheTime!) < _cacheTtl &&
+        _cachedSettings!.lastResetDate == today) {
+      return _cachedSettings!;
+    }
+
     // Проверяем, нужно ли сбросить счётчик
     if (await shouldResetCounter()) {
       await resetDailyCounter();
     }
-
-    final today = DateTime.now().toIso8601String().substring(0, 10);
     
     // Обработка intervalHours - может быть int (старые данные) или double (новые)
     double intervalHours = AppConstants.defaultIntervalHours;
-    try {
-      intervalHours = _prefs?.getDouble(AppConstants.keyIntervalHours) ?? AppConstants.defaultIntervalHours;
-    } catch (e) {
-      // Если сохранено как int, конвертируем в double
-      final intValue = _prefs?.getInt(AppConstants.keyIntervalHours);
-      if (intValue != null) {
-        intervalHours = intValue.toDouble();
-        // Сохраняем как double для будущих обращений
-        await _prefs?.setDouble(AppConstants.keyIntervalHours, intervalHours);
-      }
+    
+    // Безопасное получение intervalHours
+    final intervalValue = _prefs?.get(AppConstants.keyIntervalHours);
+    if (intervalValue is int) {
+      // Старые данные сохранены как int
+      intervalHours = intervalValue.toDouble();
+      // Сохраняем как double для будущых обращений
+      await _prefs?.setDouble(AppConstants.keyIntervalHours, intervalHours);
+    } else if (intervalValue is double) {
+      // Новые данные уже как double
+      intervalHours = intervalValue;
+    } else {
+      // Нет данных или неправильный тип - используем значение по умолчанию
+      intervalHours = AppConstants.defaultIntervalHours;
     }
     
-    return AppSettings(
+    final settings = AppSettings(
       glassesCount: _prefs?.getInt(AppConstants.keyGlassesCount) ?? AppConstants.defaultGlassesCount,
       drankToday: _prefs?.getInt(AppConstants.keyDrankToday) ?? 0,
       lastResetDate: _prefs?.getString(AppConstants.keyLastResetDate) ?? today,
@@ -64,7 +90,13 @@ class StorageService {
       quietEndHour: _prefs?.getInt(AppConstants.keyQuietEndHour) ?? AppConstants.defaultQuietEndHour,
       toxicityLevel: _prefs?.getString(AppConstants.keyToxicityLevel) ?? AppConstants.defaultToxicityLevel,
       notificationsEnabled: _prefs?.getBool(AppConstants.keyNotificationsEnabled) ?? true,
+      notificationSound: _prefs?.getBool(AppConstants.keyNotificationSound) ?? true,
+      notificationVibration: _prefs?.getBool(AppConstants.keyNotificationVibration) ?? true,
     );
+
+    _cachedSettings = settings;
+    _cacheTime = now;
+    return settings;
   }
 
   /// Сохранение настроек
@@ -84,6 +116,11 @@ class StorageService {
     await _prefs?.setInt(AppConstants.keyQuietEndHour, settings.quietEndHour);
     await _prefs?.setString(AppConstants.keyToxicityLevel, settings.toxicityLevel);
     await _prefs?.setBool(AppConstants.keyNotificationsEnabled, settings.notificationsEnabled);
+    await _prefs?.setBool(AppConstants.keyNotificationSound, settings.notificationSound);
+    await _prefs?.setBool(AppConstants.keyNotificationVibration, settings.notificationVibration);
+
+    _cachedSettings = settings;
+    _cacheTime = DateTime.now();
   }
 
   /// Увеличить счётчик выпитых стаканов
@@ -93,8 +130,41 @@ class StorageService {
     final current = _prefs?.getInt(AppConstants.keyDrankToday) ?? 0;
     final newValue = current + 1;
     await _prefs?.setInt(AppConstants.keyDrankToday, newValue);
+    final now = DateTime.now();
+    await _prefs?.setInt(AppConstants.keyLastDrinkAt, now.millisecondsSinceEpoch);
+
+    if (_cachedSettings != null) {
+      _cachedSettings = _cachedSettings!.copyWith(drankToday: newValue);
+      _cacheTime = DateTime.now();
+    }
+
+    _cachedLastDrinkAt = now;
     
     return newValue;
+  }
+
+  /// Получить время последнего нажатия "ВЫПИЛ"
+  Future<DateTime?> getLastDrinkTime() async {
+    if (_prefs == null) await init();
+    if (_cachedLastDrinkAt != null) return _cachedLastDrinkAt;
+
+    final millis = _prefs?.getInt(AppConstants.keyLastDrinkAt);
+    if (millis == null) return null;
+
+    _cachedLastDrinkAt = DateTime.fromMillisecondsSinceEpoch(millis);
+    return _cachedLastDrinkAt;
+  }
+
+  /// Получить текущий счётчик выпитых стаканов
+  Future<int> getDrankCounter() async {
+    if (_prefs == null) await init();
+    final now = DateTime.now();
+    if (_cachedSettings != null &&
+        _cacheTime != null &&
+        now.difference(_cacheTime!) < _cacheTtl) {
+      return _cachedSettings!.drankToday;
+    }
+    return _prefs?.getInt(AppConstants.keyDrankToday) ?? 0;
   }
 
   /// Установить норму стаканов по весу

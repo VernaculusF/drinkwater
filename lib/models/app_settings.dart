@@ -9,6 +9,8 @@ class AppSettings {
   final int quietEndHour; // Конец тихих часов
   final String toxicityLevel; // Уровень токсичности фраз
   final bool notificationsEnabled; // Включены ли уведомления
+  final bool notificationSound; // Звук уведомлений
+  final bool notificationVibration; // Вибрация уведомлений
 
   AppSettings({
     required this.glassesCount,
@@ -20,6 +22,8 @@ class AppSettings {
     required this.quietEndHour,
     required this.toxicityLevel,
     required this.notificationsEnabled,
+    this.notificationSound = true,
+    this.notificationVibration = true,
   });
 
   /// Копирование с изменением полей
@@ -33,6 +37,8 @@ class AppSettings {
     int? quietEndHour,
     String? toxicityLevel,
     bool? notificationsEnabled,
+    bool? notificationSound,
+    bool? notificationVibration,
   }) {
     return AppSettings(
       glassesCount: glassesCount ?? this.glassesCount,
@@ -44,6 +50,8 @@ class AppSettings {
       quietEndHour: quietEndHour ?? this.quietEndHour,
       toxicityLevel: toxicityLevel ?? this.toxicityLevel,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
+      notificationSound: notificationSound ?? this.notificationSound,
+      notificationVibration: notificationVibration ?? this.notificationVibration,
     );
   }
 

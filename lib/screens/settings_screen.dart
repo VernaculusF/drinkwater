@@ -24,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   
   late AppSettings _settings;
   bool _isWeightMode = false; // Режим расчёта по весу или вручную
+  bool _isSaving = false; // Флаг сохранения настроек
   
   final TextEditingController _weightController = TextEditingController();
   final TextEditingController _glassesController = TextEditingController();
@@ -50,19 +51,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   /// Сохранение настроек
   Future<void> _saveSettings() async {
-    await _storage.saveSettings(_settings);
+    if (_isSaving) return; // Предотвращаем повторное нажатие
     
-    // Обновляем уведомления
-    if (_settings.notificationsEnabled) {
-      await _notificationService.scheduleNotifications(
-        intervalHours: _settings.intervalHours,
-      );
-    } else {
-      await _notificationService.cancelAllNotifications();
-    }
+    setState(() => _isSaving = true);
+    
+    try {
+      await _storage.saveSettings(_settings);
+      
+      // Обновляем уведомления
+      if (_settings.notificationsEnabled) {
+        await _notificationService.scheduleNotifications(
+          intervalHours: _settings.intervalHours,
+        );
+      } else {
+        await _notificationService.cancelAllNotifications();
+      }
 
-    if (mounted) {
-      Navigator.pop(context, true); // Возвращаем true = настройки изменены
+      if (mounted) {
+        Navigator.pop(context, true); // Возвращаем true = настройки изменены
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
 
@@ -113,11 +124,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(
         title: Text(AppLocalizations.settings),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.check),
-            onPressed: _saveSettings,
-            tooltip: AppLocalizations.save,
-          ),
+          if (_isSaving)
+            const Padding(
+              padding: EdgeInsets.all(16.0),
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.check),
+              onPressed: _saveSettings,
+              tooltip: AppLocalizations.save,
+            ),
         ],
       ),
       body: ListView(
@@ -283,6 +307,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
+                  
+                  const Divider(),
+                  
+                  // Звук уведомлений
+                  SwitchListTile(
+                    title: const Text('Звук'),
+                    subtitle: const Text('Воспроизводить звук при уведомлении'),
+                    value: _settings.notificationSound,
+                    onChanged: (value) {
+                      setState(() {
+                        _settings = _settings.copyWith(notificationSound: value);
+                      });
+                    },
+                  ),
+                  
+                  // Вибрация
+                  SwitchListTile(
+                    title: const Text('Вибрация'),
+                    subtitle: const Text('Включать вибрацию при уведомлении'),
+                    value: _settings.notificationVibration,
+                    onChanged: (value) {
+                      setState(() {
+                        _settings = _settings.copyWith(notificationVibration: value);
+                      });
+                    },
+                  ),
                 ],
               ),
             ),
@@ -360,9 +410,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               setState(() {
                 _settings = _settings.copyWith(drankToday: 0);
               });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(AppLocalizations.counterReset)),
-              );
             },
             icon: const Icon(Icons.refresh),
             label: Text(AppLocalizations.resetCounter),

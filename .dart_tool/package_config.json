@@ -338,6 +338,12 @@
       "languageVersion": "3.8"
     },
     {
+      "name": "yandex_mobileads",
+      "rootUri": "file:///C:/Users/Jester/AppData/Local/Pub/Cache/hosted/pub.dev/yandex_mobileads-7.18.0",
+      "packageUri": "lib/",
+      "languageVersion": "2.17"
+    },
+    {
       "name": "drinkwater",
       "rootUri": "../",
       "packageUri": "lib/",

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/services.dart';
+import '../constants/app_constants.dart';
 
 /// Сервис для работы с фразами из JSON
 class PhraseService {
@@ -9,23 +10,35 @@ class PhraseService {
   PhraseService._internal();
 
   Map<String, List<String>>? _phrases;
+  Future<void>? _loadFuture;
   final Random _random = Random();
 
   /// Загрузка фраз из JSON файла
   Future<void> loadPhrases() async {
-    if (_phrases != null) return; // Уже загружены
+    await _ensureLoaded();
+  }
 
+  Future<void> _ensureLoaded() async {
+    if (_phrases != null) return;
+    if (_loadFuture != null) return _loadFuture!;
+
+    _loadFuture = _loadFromAssets();
+    await _loadFuture;
+    _loadFuture = null;
+  }
+
+  Future<void> _loadFromAssets() async {
     try {
       final String jsonString = await rootBundle.loadString('assets/phrases.json');
       final Map<String, dynamic> jsonData = json.decode(jsonString);
-      
+
       _phrases = {
         'light': List<String>.from(jsonData['light'] ?? []),
         'medium': List<String>.from(jsonData['medium'] ?? []),
         'toxic': List<String>.from(jsonData['toxic'] ?? []),
       };
     } catch (e) {
-      print('Ошибка загрузки фраз: $e');
+      AppConstants.debugLog('Ошибка загрузки фраз: $e');
       // Фразы-заглушки на случай ошибки
       _phrases = {
         'light': ['Попей водички'],
@@ -38,6 +51,7 @@ class PhraseService {
   /// Получить случайную фразу по уровню токсичности
   String getRandomPhrase(String toxicityLevel) {
     if (_phrases == null) {
+      _ensureLoaded();
       return 'Загрузка...';
     }
 
@@ -51,7 +65,10 @@ class PhraseService {
 
   /// Получить все фразы для уровня токсичности
   List<String> getPhrasesForLevel(String toxicityLevel) {
-    if (_phrases == null) return [];
+    if (_phrases == null) {
+      _ensureLoaded();
+      return [];
+    }
     return _phrases![toxicityLevel] ?? [];
   }
 }

@@ -12,7 +12,8 @@
         "flutter_local_notifications",
         "home_widget",
         "shared_preferences",
-        "timezone"
+        "timezone",
+        "yandex_mobileads"
       ],
       "devDependencies": [
         "flutter_lints",
@@ -48,6 +49,14 @@
       "name": "cupertino_icons",
       "version": "1.0.8",
       "dependencies": []
+    },
+    {
+      "name": "yandex_mobileads",
+      "version": "7.18.0",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
     },
     {
       "name": "home_widget",
@@ -188,6 +197,13 @@
         "stream_channel",
         "string_scanner",
         "term_glyph"
+      ]
+    },
+    {
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
+      "dependencies": [
+        "meta"
       ]
     },
     {
@@ -418,13 +434,6 @@
       "version": "0.0.0",
       "dependencies": [
         "flutter"
-      ]
-    },
-    {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
-      "dependencies": [
-        "meta"
       ]
     },
     {

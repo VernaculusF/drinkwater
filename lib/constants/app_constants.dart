@@ -2,6 +2,14 @@ import 'package:flutter/material.dart';
 
 /// Константы приложения
 class AppConstants {
+  static void debugLog(String message) {
+    assert(() {
+      // ignore: avoid_print
+      print(message);
+      return true;
+    }());
+  }
+
   // Цвета - улучшенная палитра
   static const Color primaryColor = Color(0xFF00BCD4); // Голубой (вода) - более яркий
   static const Color accentColor = Color(0xFF0097A7); // Тёмный голубой
@@ -34,6 +42,13 @@ class AppConstants {
   static const String keyQuietEndHour = 'quiet_end_hour';
   static const String keyToxicityLevel = 'toxicity_level';
   static const String keyNotificationsEnabled = 'notifications_enabled';
+  static const String keyNotificationSound = 'notification_sound';
+  static const String keyNotificationVibration = 'notification_vibration';
+  static const String keyLastDrinkAt = 'last_drink_at';
+  
+  // Яндекс РСЯ
+  // ВАЖНО: Замените на ваш реальный Block ID из личного кабинета Яндекс РСЯ
+  static const String yandexAdBannerUnitId = 'demo-banner-yandex'; // Тестовый ID
   
   // Уровни токсичности
   static const String toxicityLight = 'light';

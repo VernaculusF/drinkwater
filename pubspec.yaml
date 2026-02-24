@@ -20,6 +20,9 @@ dependencies:
   # Виджет
   home_widget: ^0.6.0
   
+  # Реклама Яндекс РСЯ
+  yandex_mobileads: ^7.5.0
+  
   # UI
   cupertino_icons: ^1.0.2
 

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'services/storage_service.dart';
 import 'services/notification_service.dart';
-import 'services/phrase_service.dart';
 import 'constants/app_constants.dart';
 import 'constants/app_localizations.dart';
 
@@ -26,25 +25,6 @@ Future<void> _initializeServices() async {
     final notificationService = NotificationService();
     await notificationService.init();
     await notificationService.requestPermission();
-    
-    // Фразы
-    final phraseService = PhraseService();
-    await phraseService.loadPhrases();
-    
-    // Загружаем настройки и переинициализируем уведомления
-    final settings = await storageService.loadSettings();
-    
-    // ВАЖНО: Всегда переинициализируем уведомления при запуске приложения
-    // (может быть восстановление после перезагрузки)
-    if (settings.notificationsEnabled) {
-      await notificationService.scheduleNotifications(
-        intervalHours: settings.intervalHours,
-      );
-      print('✅ Уведомления переинициализированы при запуске');
-    } else {
-      await notificationService.cancelAllNotifications();
-      print('✅ Уведомления отключены');
-    }
     
     print(AppLocalizations.allServicesInitialized);
   } catch (e) {
