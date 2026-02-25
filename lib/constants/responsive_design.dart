@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 
 /// Класс для адаптивного дизайна под разные диагонали экранов
 class ResponsiveDesign {
@@ -23,10 +22,6 @@ class ResponsiveDesign {
   
   /// Определение типа устройства по диагонали
   DeviceType _getDeviceType() {
-    // Диагональ в дюймах
-    final diagonal = (screenWidth * screenWidth + screenHeight * screenHeight) /
-        math.sqrt(screenWidth * screenWidth + screenHeight * screenHeight);
-    
     if (screenWidth < 500) {
       return DeviceType.phone;
     } else if (screenWidth < 900) {

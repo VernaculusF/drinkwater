@@ -312,22 +312,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         centerTitle: true,
         elevation: 0,
         actions: [
-          // Кнопка для тестового уведомления (отладка)
-          IconButton(
-            icon: const Icon(Icons.notifications_active),
-            onPressed: () async {
-              await _notificationService.scheduleTestNotification();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('🧪 Тест запущен: мгновенное + через 30 сек'),
-                    duration: Duration(seconds: 4),
-                  ),
-                );
-              }
-            },
-            tooltip: 'Тест уведомления',
-          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _openSettings,

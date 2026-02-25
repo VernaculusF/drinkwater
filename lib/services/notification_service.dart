@@ -143,76 +143,15 @@ class NotificationService {
       // Запрашиваем разрешение на точное планирование (Android 12+)
       final exactAlarmGranted = await androidImplementation.requestExactAlarmsPermission();
       
-      AppConstants.debugLog('🔔 Разрешения: уведомления=${notifGranted ?? true}, точные_будильники=${exactAlarmGranted ?? true}');
-      await _logAndroidAlarmStatus('requestPermission');
-      
       return (notifGranted ?? true) && (exactAlarmGranted ?? true);
     }
     
     return true; // Для версий ниже Android 13 разрешение не требуется
   }
 
-  Future<void> _logAndroidAlarmStatus(String contextLabel) async {
-    try {
-      final androidImplementation = flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
-      if (androidImplementation == null) {
-        AppConstants.debugLog('⚠️ [$contextLabel] AndroidFlutterLocalNotificationsPlugin не доступен');
-        return;
-      }
 
-      bool? canExact;
-      bool? notifEnabled;
-      try {
-        canExact = await (androidImplementation as dynamic).canScheduleExactNotifications();
-      } catch (e) {
-        AppConstants.debugLog('⚠️ [$contextLabel] canScheduleExactNotifications() недоступен: $e');
-      }
-
-      try {
-        notifEnabled = await (androidImplementation as dynamic).areNotificationsEnabled();
-      } catch (e) {
-        AppConstants.debugLog('⚠️ [$contextLabel] areNotificationsEnabled() недоступен: $e');
-      }
-
-      AppConstants.debugLog('🧪 [$contextLabel] статус: exact=$canExact, notifications=$notifEnabled');
-    } catch (e) {
-      AppConstants.debugLog('⚠️ [$contextLabel] Ошибка проверки статуса уведомлений: $e');
-    }
-  }
-
-  Future<AndroidScheduleMode> _selectAndroidScheduleMode(String contextLabel) async {
-    try {
-      final androidImplementation = flutterLocalNotificationsPlugin
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-
-      if (androidImplementation == null) {
-        AppConstants.debugLog('⚠️ [$contextLabel] AndroidFlutterLocalNotificationsPlugin не доступен');
-        return AndroidScheduleMode.exactAllowWhileIdle;
-      }
-
-      bool? canExact;
-      try {
-        canExact = await (androidImplementation as dynamic).canScheduleExactNotifications();
-      } catch (e) {
-        AppConstants.debugLog('⚠️ [$contextLabel] canScheduleExactNotifications() недоступен: $e');
-      }
-
-      if (canExact == false) {
-        AppConstants.debugLog('⚠️ [$contextLabel] exact не разрешен, fallback -> inexactAllowWhileIdle');
-        return AndroidScheduleMode.inexactAllowWhileIdle;
-      }
-
-      AppConstants.debugLog('✅ [$contextLabel] exact разрешен, используем exactAllowWhileIdle');
-      return AndroidScheduleMode.exactAllowWhileIdle;
-    } catch (e) {
-      AppConstants.debugLog('⚠️ [$contextLabel] Ошибка выбора режима: $e');
-      return AndroidScheduleMode.inexactAllowWhileIdle;
-    }
-  }
-
-  /// Показать уведомление (МИНИМАЛЬНАЯ версия для отладки)
+  /// Показать уведомление
   Future<void> showNotification({
     required String title,
     required String body,
@@ -221,94 +160,43 @@ class NotificationService {
     String? progressText,
   }) async {
     if (!_initialized) await init();
-    
-    AppConstants.debugLog('📢 showNotification: "$title" "$body"');
 
-    // МИНИМУМ: только необходимые параметры
     final androidDetails = AndroidNotificationDetails(
       'water_reminder',
-      'Напоминание о воде',
-      importance: Importance.max,
-      priority: Priority.max,
+      AppLocalizations.notificationTitle,
+      channelDescription: AppLocalizations.notificationChannelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+      icon: '@mipmap/ic_launcher',
+      sound: null,
+      vibrationPattern: withVibration ? Int64List.fromList([0, 250, 250, 250]) : null,
+      playSound: withSound,
+      enableVibration: withVibration,
+      styleInformation: const BigTextStyleInformation(''),
+      subText: progressText,
+      actions: <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'DRINK_ACTION',
+          'ВЫПИЛ',
+          showsUserInterface: true,
+        ),
+      ],
     );
 
     final notificationDetails = NotificationDetails(
       android: androidDetails,
     );
 
-    try {
-      await flutterLocalNotificationsPlugin.show(
-        0,
-        title,
-        body,
-        notificationDetails,
-      );
-      AppConstants.debugLog('✅ show() успешно выполнен');
-    } catch (e) {
-      AppConstants.debugLog('❌ show() ошибка: $e');
-    }
+    await flutterLocalNotificationsPlugin.show(
+      0,
+      title,
+      body,
+      notificationDetails,
+      payload: 'water_reminder',
+    );
   }
 
-  /// Создать ТЕСТОВОЕ уведомление (МИНИМУМ для отладки)
-  Future<void> scheduleTestNotification() async {
-    if (!_initialized) await init();
-    
-    AppConstants.debugLog('🧪 === ТЕСТ УВЕДОМЛЕНИЙ ===');
-    await _logAndroidAlarmStatus('scheduleTestNotification');
-    
-    // ТЕСТ 1: Мгновенное
-    AppConstants.debugLog('📢 ТЕСТ 1: Мгновенное уведомление');
-    try {
-      await flutterLocalNotificationsPlugin.show(
-        9999,
-        'ТЕСТ СЕЙЧАС',
-        'Если видите это - уведомления работают!',
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            'water_reminder',
-            'Напоминание о воде',
-            importance: Importance.max,
-            priority: Priority.max,
-          ),
-        ),
-      );
-      AppConstants.debugLog('✅ Мгновенное уведомление отправлено');
-    } catch (e) {
-      AppConstants.debugLog('❌ Ошибка: $e');
-    }
-    
-    // ТЕСТ 2: Запланированное через 5 секунд (для быстрой проверки)
-    AppConstants.debugLog('📢 ТЕСТ 2: На 5 секунд вперед');
-    try {
-      final duration = Duration(seconds: 5);
-      final scheduleMode = await _selectAndroidScheduleMode('scheduleTestNotification');
-      
-      await flutterLocalNotificationsPlugin.zonedSchedule(
-        9998,
-        'ТЕСТ 5 СЕК',
-        'Прошло 5 секунд',
-        tz.TZDateTime.now(tz.local).add(duration),
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            'water_reminder',
-            'Напоминание о воде',
-            importance: Importance.max,
-            priority: Priority.max,
-          ),
-        ),
-        androidScheduleMode: scheduleMode,
-        uiLocalNotificationDateInterpretation: 
-          UILocalNotificationDateInterpretation.absoluteTime,
-      );
-      AppConstants.debugLog('✅ Запланировано на 5 секунд (mode=$scheduleMode)');
-    } catch (e) {
-      AppConstants.debugLog('❌ Ошибка: $e');
-    }
-    
-    // Проверяем pending notifications
-    final pending = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
-    AppConstants.debugLog('📋 Запланировано в системе: ${pending.length}');
-  }
+
 
   /// Запланировать периодические уведомления (используя встроенный механизм ОС)
   Future<void> scheduleNotifications({
@@ -389,16 +277,6 @@ class NotificationService {
       AppConstants.debugLog('⏱️ Интервал между уведомлениями: $minutesInterval мин');
       AppConstants.debugLog('📌 Можно запланировать: $notificationsToSchedule из $remainingGlasses');
       
-      // Логируем текущее время для отладки
-      final nowDevice = DateTime.now();
-      final nowTz = tz.TZDateTime.now(tz.local);
-      AppConstants.debugLog('🕐 Текущее время устройства: ${nowDevice.hour}:${nowDevice.minute}:${nowDevice.second}');
-      AppConstants.debugLog('🕐 Текущее время TZ: ${nowTz.hour}:${nowTz.minute}:${nowTz.second}');
-      
-      await _logAndroidAlarmStatus('scheduleNotifications');
-      final scheduleMode = await _selectAndroidScheduleMode('scheduleNotifications');
-      AppConstants.debugLog('⚙️ Режим планирования: $scheduleMode');
-      
       // Начинаем планирование с текущего момента (или после окончания тихого часа)
           final bool isFastTest = settings.fastTestNotifications;
       final int firstDelayMinutes = isFastTest
@@ -424,11 +302,9 @@ class NotificationService {
         }
         
         final int notificationId = i;
-        final hour = nextNotificationTime.hour;
-        final minute = nextNotificationTime.minute;
         
         try {
-          // Используем schedule() вместо zonedSchedule() - проще и надежнее
+          // Используем zonedSchedule для системного планирования
           final duration = nextNotificationTime.difference(DateTime.now());
           
           if (duration.isNegative) {
@@ -451,7 +327,7 @@ class NotificationService {
                 priority: Priority.max,
               ),
             ),
-            androidScheduleMode: scheduleMode,
+            androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
             uiLocalNotificationDateInterpretation: 
               UILocalNotificationDateInterpretation.absoluteTime,
           );
