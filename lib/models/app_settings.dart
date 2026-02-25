@@ -11,6 +11,7 @@ class AppSettings {
   final bool notificationsEnabled; // Включены ли уведомления
   final bool notificationSound; // Звук уведомлений
   final bool notificationVibration; // Вибрация уведомлений
+  final bool fastTestNotifications; // Быстрый тест уведомлений
 
   AppSettings({
     required this.glassesCount,
@@ -24,6 +25,7 @@ class AppSettings {
     required this.notificationsEnabled,
     this.notificationSound = true,
     this.notificationVibration = true,
+    this.fastTestNotifications = false,
   });
 
   /// Копирование с изменением полей
@@ -39,6 +41,7 @@ class AppSettings {
     bool? notificationsEnabled,
     bool? notificationSound,
     bool? notificationVibration,
+    bool? fastTestNotifications,
   }) {
     return AppSettings(
       glassesCount: glassesCount ?? this.glassesCount,
@@ -52,6 +55,7 @@ class AppSettings {
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
       notificationSound: notificationSound ?? this.notificationSound,
       notificationVibration: notificationVibration ?? this.notificationVibration,
+      fastTestNotifications: fastTestNotifications ?? this.fastTestNotifications,
     );
   }
 

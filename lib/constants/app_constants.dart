@@ -28,6 +28,10 @@ class AppConstants {
   static const double defaultIntervalHours = 2.0;
   static const String defaultToxicityLevel = 'medium';
   
+  // Быстрый режим для тестов уведомлений
+  static const bool defaultFastTestNotifications = false;
+  static const int fastTestFirstDelayMinutes = 1;
+  
   // Тихие часы по умолчанию (22:00 - 8:00)
   static const int defaultQuietStartHour = 22;
   static const int defaultQuietEndHour = 8;
@@ -45,6 +49,7 @@ class AppConstants {
   static const String keyNotificationSound = 'notification_sound';
   static const String keyNotificationVibration = 'notification_vibration';
   static const String keyLastDrinkAt = 'last_drink_at';
+  static const String keyFastTestNotifications = 'fast_test_notifications';
   
   // Яндекс РСЯ
   // Тестовый блок для проверки интеграции
@@ -62,10 +67,14 @@ class AppConstants {
   };
   
   // Интервалы напоминаний (в часах)
-  static const List<double> availableIntervals = [1, 2, 3];
+  static const List<double> availableIntervals = [5 / 60.0, 1, 2, 3];
   
   /// Форматирование интервала для отображения
   static String formatInterval(double hours) {
+    if (hours < 1) {
+      final minutes = (hours * 60).round();
+      return '$minutes мин';
+    }
     return '${hours.toInt()} ч';
   }
   

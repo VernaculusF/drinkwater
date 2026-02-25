@@ -14,9 +14,20 @@ class StorageService {
   DateTime? _cachedLastDrinkAt;
   static const Duration _cacheTtl = Duration(seconds: 10);
 
+  // Ключи для хранения информации об уведомлениях
+  static const String keyLastScheduleDate = 'last_schedule_date';
+  static const String keyScheduledIntervalHours = 'scheduled_interval_hours';
+
   /// Инициализация SharedPreferences
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+  }
+
+  /// Очистить кэш (используется в тестах)
+  void clearCache() {
+    _cachedSettings = null;
+    _cacheTime = null;
+    _cachedLastDrinkAt = null;
   }
 
   /// Проверка нужности сброса счётчика (новый день)
@@ -92,6 +103,8 @@ class StorageService {
       notificationsEnabled: _prefs?.getBool(AppConstants.keyNotificationsEnabled) ?? true,
       notificationSound: _prefs?.getBool(AppConstants.keyNotificationSound) ?? true,
       notificationVibration: _prefs?.getBool(AppConstants.keyNotificationVibration) ?? true,
+      fastTestNotifications: _prefs?.getBool(AppConstants.keyFastTestNotifications) ??
+          AppConstants.defaultFastTestNotifications,
     );
 
     _cachedSettings = settings;
@@ -118,6 +131,7 @@ class StorageService {
     await _prefs?.setBool(AppConstants.keyNotificationsEnabled, settings.notificationsEnabled);
     await _prefs?.setBool(AppConstants.keyNotificationSound, settings.notificationSound);
     await _prefs?.setBool(AppConstants.keyNotificationVibration, settings.notificationVibration);
+    await _prefs?.setBool(AppConstants.keyFastTestNotifications, settings.fastTestNotifications);
 
     _cachedSettings = settings;
     _cacheTime = DateTime.now();
@@ -182,5 +196,31 @@ class StorageService {
     
     await _prefs?.setInt(AppConstants.keyGlassesCount, count);
     await _prefs?.remove(AppConstants.keyUserWeight); // Убираем вес, т.к. ручная настройка
+  }
+
+  /// Сохранить информацию о планировании уведомлений
+  Future<void> saveNotificationSchedule({
+    required double intervalHours,
+    required String lastScheduleDate,
+  }) async {
+    if (_prefs == null) await init();
+    
+    await _prefs?.setString(keyLastScheduleDate, lastScheduleDate);
+    await _prefs?.setDouble(keyScheduledIntervalHours, intervalHours);
+  }
+
+  /// Получить дату последнего планирования уведомлений
+  Future<String?> getLastScheduleDate() async {
+    if (_prefs == null) await init();
+    return _prefs?.getString(keyLastScheduleDate);
+  }
+
+  /// Получить сохранённый интервал уведомлений
+  Future<double?> getScheduledIntervalHours() async {
+    if (_prefs == null) await init();
+    final value = _prefs?.get(keyScheduledIntervalHours);
+    if (value is double) return value;
+    if (value is int) return value.toDouble();
+    return null;
   }
 }

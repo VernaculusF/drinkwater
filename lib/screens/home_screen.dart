@@ -9,6 +9,7 @@ import '../services/widget_service.dart';
 import '../services/ad_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_localizations.dart';
+import '../constants/responsive_design.dart';
 import '../widgets/confetti_widget.dart';
 import 'settings_screen.dart';
 
@@ -87,6 +88,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       }
     });
     
+    // Проверяем и переплануем уведомления если нужно (при смене дня)
+    // Это гарантирует, что если день изменился, уведомления будут переплануированы
+    try {
+      final lastScheduleDate = await _storage.getLastScheduleDate();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      
+      if (lastScheduleDate != today) {
+        AppConstants.debugLog('📅 Смена дня, переплануем уведомления');
+      }
+    } catch (e) {
+      AppConstants.debugLog('⚠️ Ошибка при проверке дня: $e');
+    }
+    
     // Если уведомления включены, запланируем их
     if (settings.notificationsEnabled) {
       await _notificationService.scheduleNotifications(
@@ -101,8 +115,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       // Не показываем фразу при первой загрузке
       _currentPhrase = '';
       _isLoading = false;
-      _lastPressTime = DateTime.now();
     });
+    
+    // Загружаем время последнего нажатия
+    _lastPressTime = await _storage.getLastDrinkTime();
+    
+    // Если кнопка была нажата, проверяем нужно ли ее разблокировать
+    if (_lastPressTime != null) {
+      _isPressed = true; // Считаем что была нажата
+      _startUnlockTimer(); // Запускаем проверку разблокировки
+    }
   }
 
   /// Инициализация рекламы
@@ -176,6 +198,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _lastPressTime = DateTime.now(); // ВАЖНО: запомнить время нажатия
       final isGoalReached = newCount >= _settings!.glassesCount;
       
+      // Переплануем уведомления для оставшихся стаканов
+      _notificationService.scheduleNotifications(
+        intervalHours: _settings!.intervalHours,
+        enabled: _settings!.notificationsEnabled,
+      );
+      
       // Один setState вместо двух
       if (mounted) {
         setState(() {
@@ -187,16 +215,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       
       // Обновляем виджет БЕЗ завтра результата (async в фоне)
       _widgetService.updateWidget();
-    } finally {
-      // БЛОКИРУЕМ КНОПКУ НА ВРЕМЯ ИНТЕРВАЛА (из настроек)
-      final lockDurationSeconds = (_settings!.intervalHours * 3600).toInt();
-      await Future.delayed(Duration(seconds: lockDurationSeconds));
       
+      // Запускаем периодическую проверку для разблокировки кнопки
+      _startUnlockTimer();
+    } catch (e) {
+      AppConstants.debugLog('⚠️ Ошибка при обработке нажатия: $e');
       _isPressed = false;
       if (mounted) setState(() {});
-      
-      AppConstants.debugLog('✅ Кнопка разблокирована (была заблокирована на ${_settings!.intervalHours.toStringAsFixed(1)} часов)');
     }
+  }
+
+  /// Запустить таймер для разблокировки кнопки
+  void _startUnlockTimer() {
+    // Проверяем каждые 10 секунд, не пора ли разблокировать кнопку
+    Future.delayed(Duration(seconds: 10), () {
+      if (!mounted || _settings == null) return;
+      
+      final now = DateTime.now();
+      if (_lastPressTime != null) {
+        final elapsed = now.difference(_lastPressTime!);
+        final lockDuration = Duration(hours: _settings!.intervalHours.toInt(), 
+                                       minutes: ((_settings!.intervalHours % 1) * 60).toInt());
+        
+        if (elapsed >= lockDuration) {
+          _isPressed = false;
+          if (mounted) {
+            setState(() {});
+            AppConstants.debugLog('✅ Кнопка разблокирована через ${elapsed.inMinutes} минут');
+          }
+        } else {
+          // Еще не время - проверяем снова
+          _startUnlockTimer();
+        }
+      }
+    });
   }
 
   /// Переход в настройки
@@ -249,6 +301,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
     final progress = _settings!.progress;
     final isDarkMode = Theme.of(context).brightness == Brightness.dark;
+    
+    // Инициализируем адаптивный дизайн
+    final responsive = ResponsiveDesign(context);
 
     return Scaffold(
       backgroundColor: isDarkMode ? AppConstants.darkBackground : AppConstants.lightBackground,
@@ -257,6 +312,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         centerTitle: true,
         elevation: 0,
         actions: [
+          // Кнопка для тестового уведомления (отладка)
+          IconButton(
+            icon: const Icon(Icons.notifications_active),
+            onPressed: () async {
+              await _notificationService.scheduleTestNotification();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🧪 Тест запущен: мгновенное + через 30 сек'),
+                    duration: Duration(seconds: 4),
+                  ),
+                );
+              }
+            },
+            tooltip: 'Тест уведомления',
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _openSettings,
@@ -271,10 +342,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               children: [
                 // Счётчик
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16.0),
+                  padding: EdgeInsets.symmetric(vertical: responsive.spacing),
                   child: Text(
                     '${_settings!.drankToday} / ${_settings!.glassesCount}',
                     style: Theme.of(context).textTheme.displayLarge?.copyWith(
+                      fontSize: responsive.counterFontSize,
                       fontWeight: FontWeight.bold,
                       color: AppConstants.primaryColor,
                     ),
@@ -283,24 +355,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
                 // Прогресс-бар с улучшенным стилем
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                  padding: EdgeInsets.symmetric(horizontal: responsive.horizontalPadding),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: LinearProgressIndicator(
                       value: progress,
-                      minHeight: 24,
+                      minHeight: responsive.progressBarHeight,
                       backgroundColor: Colors.grey[300],
                       valueColor: const AlwaysStoppedAnimation<Color>(AppConstants.primaryColor),
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 8),
+                SizedBox(height: responsive.spacing),
 
                 // Процент
                 Text(
                   '${(progress * 100).toInt()}%',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontSize: responsive.bodyFontSize + 2,
                     color: AppConstants.primaryColor,
                     fontWeight: FontWeight.bold,
                   ),
@@ -317,8 +390,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       child: Opacity(
                         opacity: _isPressed ? 0.6 : 1.0,
                         child: Container(
-                          width: AppConstants.buttonSize,
-                          height: AppConstants.buttonSize,
+                          width: responsive.buttonSize,
+                          height: responsive.buttonSize,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             gradient: const LinearGradient(
@@ -339,15 +412,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               ),
                             ],
                           ),
-                          child: const Center(
+                          child: Center(
                             child: Text(
                               'ВЫПИЛ',
                               style: TextStyle(
-                                fontSize: 32,
+                                fontSize: responsive.buttonFontSize,
                                 fontWeight: FontWeight.bold,
                                 color: Colors.white,
                                 letterSpacing: 2,
-                                shadows: [
+                                shadows: const [
                                   Shadow(
                                     blurRadius: 4,
                                     color: Colors.black26,
@@ -368,11 +441,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 // Стёбная подпись (только при просрочке времени)
                 if (_shouldShowTimeoutMessage())
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32.0, vertical: 16.0),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: responsive.horizontalPadding,
+                      vertical: responsive.spacing,
+                    ),
                     child: Text(
                       _currentPhrase,
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontSize: responsive.bodyFontSize,
                         fontStyle: FontStyle.italic,
                         color: Colors.grey[600],
                       ),

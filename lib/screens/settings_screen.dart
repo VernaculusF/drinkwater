@@ -60,10 +60,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       
       // Обновляем уведомления
       if (_settings.notificationsEnabled) {
+        AppConstants.debugLog('⚙️ Settings: scheduleNotifications start');
         await _notificationService.scheduleNotifications(
           intervalHours: _settings.intervalHours,
         );
+        AppConstants.debugLog('✅ Settings: scheduleNotifications done');
       } else {
+        AppConstants.debugLog('⚙️ Settings: cancelAllNotifications');
         await _notificationService.cancelAllNotifications();
       }
 
@@ -145,7 +148,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).padding.bottom + 56, // Защита от navigation bar
+        ),
         children: [
           // Норма воды
           Card(
@@ -332,6 +340,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         _settings = _settings.copyWith(notificationVibration: value);
                       });
                     },
+                  ),
+
+                  // Быстрый тест уведомлений
+                  SwitchListTile(
+                    title: const Text('Быстрый тест уведомлений'),
+                    subtitle: const Text('Первое через 1 мин, дальше 1-5 мин'),
+                    value: _settings.fastTestNotifications,
+                    onChanged: (value) {
+                      setState(() {
+                        _settings = _settings.copyWith(fastTestNotifications: value);
+                      });
+                    },
+                  ),
+
+                  const SizedBox(height: 8),
+
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      AppConstants.debugLog('🧪 Settings: scheduleTestNotification');
+                      await _notificationService.scheduleTestNotification();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Тест отправлен. Ждем 5 секунд...')),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.notifications_active),
+                    label: const Text('Тест уведомлений (5 сек)'),
                   ),
                 ],
               ),

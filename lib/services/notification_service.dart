@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tz_data;
+import 'package:timezone/timezone.dart' as tz;
 import 'dart:async';
 import 'dart:typed_data';
 import '../constants/app_localizations.dart';
@@ -10,24 +11,31 @@ import 'storage_service.dart';
 import 'widget_service.dart';
 
 @pragma('vm:entry-point')
-Future<void> notificationTapBackground(NotificationResponse response) async {
+void notificationTapBackground(NotificationResponse response) {
   if (response.actionId == 'DRINK_ACTION' || response.payload == 'water_reminder') {
-    await _handleDrinkActionInBackground();
+    _handleDrinkActionInBackground();
   }
 }
 
-Future<void> _handleDrinkActionInBackground() async {
-  WidgetsFlutterBinding.ensureInitialized();
+/// Background handler для уведомлений (не может быть async)
+void _handleDrinkActionInBackground() {
+  // Запускаем в фоне, не блокируя основной поток
+  Future.delayed(Duration.zero, () async {
+    try {
+      WidgetsFlutterBinding.ensureInitialized();
+      final storageService = StorageService();
+      await storageService.init();
+      final newCount = await storageService.incrementDrankCounter();
 
-  final storageService = StorageService();
-  await storageService.init();
-  final newCount = await storageService.incrementDrankCounter();
+      final widgetService = WidgetService();
+      await widgetService.init();
+      await widgetService.updateWidget();
 
-  final widgetService = WidgetService();
-  await widgetService.init();
-  await widgetService.updateWidget();
-
-  AppConstants.debugLog('✅ Выпил из уведомления (фон). Новый счетчик: $newCount');
+      AppConstants.debugLog('✅ Выпил из уведомления (фон). Новый счетчик: $newCount');
+    } catch (e) {
+      AppConstants.debugLog('⚠️ Ошибка обработки уведомления в фоне: $e');
+    }
+  });
 }
 
 /// Сервис для работы с уведомлениями
@@ -37,13 +45,19 @@ class NotificationService {
   NotificationService._internal();
 
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
+  final PhraseService _phraseService = PhraseService();
   bool _initialized = false;
+  
+  // Для тестирования: позволяем вставлять mock плагин
+  late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = _notifications;
+  late PhraseService phraseService = _phraseService;
   
   // Callback для обработки нажатия на уведомление
   Function(String payload)? onNotificationTapped;
 
   /// Инициализация уведомлений
   Future<void> init() async {
+    AppConstants.debugLog('🔔 NotificationService инициализация...');
     if (_initialized) return;
 
     // Инициализируем временные зоны
@@ -56,13 +70,19 @@ class NotificationService {
       android: androidSettings,
     );
 
-    await _notifications.initialize(
+    await flutterLocalNotificationsPlugin.initialize(
       settings,
       onDidReceiveNotificationResponse: _onNotificationTap,
       onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     _initialized = true;
+
+    // Создаем канал уведомлений для Android 8+ (ОБЯЗАТЕЛЬНО!)
+    await _createNotificationChannel();
+
+    // Проверяем, нужно ли переплануровать уведомления на новый день
+    await _checkAndRescheduleIfNeeded();
   }
 
   /// Обработка нажатия на уведомление или его кнопки
@@ -75,8 +95,38 @@ class NotificationService {
       if (onNotificationTapped != null) {
         onNotificationTapped!('water_reminder');
       } else {
-        unawaited(_handleDrinkActionInBackground());
+        _handleDrinkActionInBackground();
       }
+    }
+  }
+
+  /// Создание канала уведомлений для Android 8+ (API 26+)
+  /// Это ОБЯЗАТЕЛЬНО для доставки уведомлений на Android 8 и выше
+  Future<void> _createNotificationChannel() async {
+    try {
+      final androidImplementation = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      
+      if (androidImplementation != null) {
+        AppConstants.debugLog('🔧 Инициализация канала уведомлений...');
+        
+        // Создаем канал с параметрами (id, name)
+        final waterChannel = AndroidNotificationChannel(
+          'water_reminder',
+          AppLocalizations.notificationTitle,
+          description: AppLocalizations.notificationChannelDescription,
+          importance: Importance.high,
+          enableVibration: true,
+          playSound: true,
+        );
+        
+        await androidImplementation.createNotificationChannel(waterChannel);
+        AppConstants.debugLog('✅ Канал water_reminder инициализирован');
+      } else {
+        AppConstants.debugLog('⚠️ AndroidFlutterLocalNotificationsPlugin не доступен');
+      }
+    } catch (e) {
+      AppConstants.debugLog('❌ Ошибка создания канала: $e');
     }
   }
 
@@ -84,17 +134,85 @@ class NotificationService {
   Future<bool> requestPermission() async {
     if (!_initialized) await init();
 
-    final androidImplementation = _notifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final androidImplementation = flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     
     if (androidImplementation != null) {
-      final granted = await androidImplementation.requestNotificationsPermission();
-      return granted ?? false;
+      // Запрашиваем разрешение на уведомления (Android 13+)
+      final notifGranted = await androidImplementation.requestNotificationsPermission();
+      
+      // Запрашиваем разрешение на точное планирование (Android 12+)
+      final exactAlarmGranted = await androidImplementation.requestExactAlarmsPermission();
+      
+      AppConstants.debugLog('🔔 Разрешения: уведомления=${notifGranted ?? true}, точные_будильники=${exactAlarmGranted ?? true}');
+      await _logAndroidAlarmStatus('requestPermission');
+      
+      return (notifGranted ?? true) && (exactAlarmGranted ?? true);
     }
     
     return true; // Для версий ниже Android 13 разрешение не требуется
   }
 
-  /// Показать уведомление
+  Future<void> _logAndroidAlarmStatus(String contextLabel) async {
+    try {
+      final androidImplementation = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+
+      if (androidImplementation == null) {
+        AppConstants.debugLog('⚠️ [$contextLabel] AndroidFlutterLocalNotificationsPlugin не доступен');
+        return;
+      }
+
+      bool? canExact;
+      bool? notifEnabled;
+      try {
+        canExact = await (androidImplementation as dynamic).canScheduleExactNotifications();
+      } catch (e) {
+        AppConstants.debugLog('⚠️ [$contextLabel] canScheduleExactNotifications() недоступен: $e');
+      }
+
+      try {
+        notifEnabled = await (androidImplementation as dynamic).areNotificationsEnabled();
+      } catch (e) {
+        AppConstants.debugLog('⚠️ [$contextLabel] areNotificationsEnabled() недоступен: $e');
+      }
+
+      AppConstants.debugLog('🧪 [$contextLabel] статус: exact=$canExact, notifications=$notifEnabled');
+    } catch (e) {
+      AppConstants.debugLog('⚠️ [$contextLabel] Ошибка проверки статуса уведомлений: $e');
+    }
+  }
+
+  Future<AndroidScheduleMode> _selectAndroidScheduleMode(String contextLabel) async {
+    try {
+      final androidImplementation = flutterLocalNotificationsPlugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+
+      if (androidImplementation == null) {
+        AppConstants.debugLog('⚠️ [$contextLabel] AndroidFlutterLocalNotificationsPlugin не доступен');
+        return AndroidScheduleMode.exactAllowWhileIdle;
+      }
+
+      bool? canExact;
+      try {
+        canExact = await (androidImplementation as dynamic).canScheduleExactNotifications();
+      } catch (e) {
+        AppConstants.debugLog('⚠️ [$contextLabel] canScheduleExactNotifications() недоступен: $e');
+      }
+
+      if (canExact == false) {
+        AppConstants.debugLog('⚠️ [$contextLabel] exact не разрешен, fallback -> inexactAllowWhileIdle');
+        return AndroidScheduleMode.inexactAllowWhileIdle;
+      }
+
+      AppConstants.debugLog('✅ [$contextLabel] exact разрешен, используем exactAllowWhileIdle');
+      return AndroidScheduleMode.exactAllowWhileIdle;
+    } catch (e) {
+      AppConstants.debugLog('⚠️ [$contextLabel] Ошибка выбора режима: $e');
+      return AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+  }
+
+  /// Показать уведомление (МИНИМАЛЬНАЯ версия для отладки)
   Future<void> showNotification({
     required String title,
     required String body,
@@ -103,136 +221,449 @@ class NotificationService {
     String? progressText,
   }) async {
     if (!_initialized) await init();
+    
+    AppConstants.debugLog('📢 showNotification: "$title" "$body"');
 
+    // МИНИМУМ: только необходимые параметры
     final androidDetails = AndroidNotificationDetails(
       'water_reminder',
-      AppLocalizations.notificationTitle,
-      channelDescription: AppLocalizations.notificationChannelDescription,
-      importance: Importance.high,
-      priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
-      sound: null,
-      vibrationPattern: withVibration ? Int64List.fromList([0, 250, 250, 250]) : null,
-      playSound: withSound,
-      enableVibration: withVibration,
-      styleInformation: const BigTextStyleInformation(''),
-      subText: progressText,
-      actions: <AndroidNotificationAction>[
-        AndroidNotificationAction(
-          'DRINK_ACTION',
-          'ВЫПИЛ',
-          showsUserInterface: true,
-        ),
-      ],
+      'Напоминание о воде',
+      importance: Importance.max,
+      priority: Priority.max,
     );
 
     final notificationDetails = NotificationDetails(
       android: androidDetails,
     );
 
-    await _notifications.show(
-      0,
-      title,
-      body,
-      notificationDetails,
-      payload: 'water_reminder',
-    );
+    try {
+      await flutterLocalNotificationsPlugin.show(
+        0,
+        title,
+        body,
+        notificationDetails,
+      );
+      AppConstants.debugLog('✅ show() успешно выполнен');
+    } catch (e) {
+      AppConstants.debugLog('❌ show() ошибка: $e');
+    }
   }
 
-  /// Запланировать периодические уведомления
+  /// Создать ТЕСТОВОЕ уведомление (МИНИМУМ для отладки)
+  Future<void> scheduleTestNotification() async {
+    if (!_initialized) await init();
+    
+    AppConstants.debugLog('🧪 === ТЕСТ УВЕДОМЛЕНИЙ ===');
+    await _logAndroidAlarmStatus('scheduleTestNotification');
+    
+    // ТЕСТ 1: Мгновенное
+    AppConstants.debugLog('📢 ТЕСТ 1: Мгновенное уведомление');
+    try {
+      await flutterLocalNotificationsPlugin.show(
+        9999,
+        'ТЕСТ СЕЙЧАС',
+        'Если видите это - уведомления работают!',
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'water_reminder',
+            'Напоминание о воде',
+            importance: Importance.max,
+            priority: Priority.max,
+          ),
+        ),
+      );
+      AppConstants.debugLog('✅ Мгновенное уведомление отправлено');
+    } catch (e) {
+      AppConstants.debugLog('❌ Ошибка: $e');
+    }
+    
+    // ТЕСТ 2: Запланированное через 5 секунд (для быстрой проверки)
+    AppConstants.debugLog('📢 ТЕСТ 2: На 5 секунд вперед');
+    try {
+      final duration = Duration(seconds: 5);
+      final scheduleMode = await _selectAndroidScheduleMode('scheduleTestNotification');
+      
+      await flutterLocalNotificationsPlugin.zonedSchedule(
+        9998,
+        'ТЕСТ 5 СЕК',
+        'Прошло 5 секунд',
+        tz.TZDateTime.now(tz.local).add(duration),
+        NotificationDetails(
+          android: AndroidNotificationDetails(
+            'water_reminder',
+            'Напоминание о воде',
+            importance: Importance.max,
+            priority: Priority.max,
+          ),
+        ),
+        androidScheduleMode: scheduleMode,
+        uiLocalNotificationDateInterpretation: 
+          UILocalNotificationDateInterpretation.absoluteTime,
+      );
+      AppConstants.debugLog('✅ Запланировано на 5 секунд (mode=$scheduleMode)');
+    } catch (e) {
+      AppConstants.debugLog('❌ Ошибка: $e');
+    }
+    
+    // Проверяем pending notifications
+    final pending = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+    AppConstants.debugLog('📋 Запланировано в системе: ${pending.length}');
+  }
+
+  /// Запланировать периодические уведомления (используя встроенный механизм ОС)
   Future<void> scheduleNotifications({
     required double intervalHours,
+    bool enabled = true,
   }) async {
     if (!_initialized) await init();
 
-    // Отменяем ВСЕ предыдущие уведомления
-    await _notifications.cancelAll();
-    AppConstants.debugLog('🗑️ Все старые уведомления отменены');
-
-    final phraseService = PhraseService();
     final storageService = StorageService();
     final settings = await storageService.loadSettings();
 
-    int minutesInterval = (intervalHours * 60).toInt();
-    if (minutesInterval < 1) minutesInterval = 1;
-    
-    AppConstants.debugLog('🔔 Планируем уведомления каждые $minutesInterval минут');
-    
-    DateTime now = DateTime.now();
-    
-    // Расчитываем количество уведомлений на день
-    int maxNotificationsPerDay = (1440 / minutesInterval).ceil();
-    maxNotificationsPerDay = maxNotificationsPerDay.clamp(1, 50);
-    
-    AppConstants.debugLog('📊 Будет планировано $maxNotificationsPerDay уведомлений');
-    
-    // Первое уведомление через указанный интервал
-    DateTime firstScheduled = now.add(Duration(minutes: minutesInterval));
-    
-    for (int i = 0; i < maxNotificationsPerDay; i++) {
-      // Расчитываем время этого уведомления
-      DateTime scheduledDateTime = firstScheduled.add(Duration(minutes: minutesInterval * i));
-      
-      // Если более 24 часов, прекращаем
-      if (scheduledDateTime.difference(now).inMinutes > 1440) {
-        break;
-      }
-      
-      final id = i;
-      final minutesFromNow = scheduledDateTime.difference(now).inMinutes;
-      final hour = scheduledDateTime.hour;
-      final minute = scheduledDateTime.minute;
-      
-      // Планируем через Future.delayed (без требований к разрешениям)
-      unawaited(
-        Future.delayed(
-          Duration(minutes: minutesFromNow),
-          () async {
-            try {
-              final storageService = StorageService();
-              await storageService.init();
-              
-              // Проверяем, прошло ли достаточно времени с последнего drink
-              final lastDrinkAt = await storageService.getLastDrinkTime();
-              
-              if (lastDrinkAt != null) {
-                final elapsedMinutes = DateTime.now().difference(lastDrinkAt).inMinutes;
-                if (elapsedMinutes < minutesInterval) {
-                  AppConstants.debugLog('⏭️ Уведомление #$id пропущено: $elapsedMinutes < $minutesInterval мин');
-                  return;
-                }
-              }
-              
-              // Уведомление прошло проверку - отправляем
-              final phrase = phraseService.getRandomPhrase(settings.toxicityLevel);
-              final currentCount = await storageService.getDrankCounter();
-              final progressText = '$currentCount/${settings.glassesCount} 💧';
-              
-              AppConstants.debugLog('📤 Отправляем уведомление #$id: $phrase');
-              
-              await showNotification(
-                title: AppLocalizations.notificationTitle,
-                body: phrase,
-                withSound: settings.notificationSound,
-                withVibration: settings.notificationVibration,
-                progressText: progressText,
-              );
-            } catch (e) {
-              AppConstants.debugLog('⚠️ Ошибка уведомления #$id: $e');
-            }
-          },
-        ),
-      );
-      
-      AppConstants.debugLog('✅ Запланировано уведомление #$i на $hour:${minute.toString().padLeft(2, '0')} (+$minutesFromNow мин)');
+    // Если отключены - отменяем все
+    if (!enabled) {
+      await flutterLocalNotificationsPlugin.cancelAll();
+      AppConstants.debugLog('🔴 Уведомления отключены, отменяем все');
+      return;
     }
 
-    AppConstants.debugLog('✅ Всего запланировано $maxNotificationsPerDay уведомлений каждые $minutesInterval минут');
+    // Отменяем ВСЕ предыдущие уведомления
+    await flutterLocalNotificationsPlugin.cancelAll();
+    AppConstants.debugLog('🗑️ Все старые уведомления отменены');
+
+    // Вычисляем сколько стаканов ОСТАЛОСЬ выпить
+    final drankToday = await storageService.getDrankCounter();
+    final remainingGlasses = (settings.glassesCount - drankToday).clamp(0, settings.glassesCount);
+
+    if (remainingGlasses == 0) {
+      AppConstants.debugLog('✅ Цель уже достигнута! Уведомления не нужны');
+      return;
+    }
+
+    AppConstants.debugLog('💧 Осталось выпить: $remainingGlasses из ${settings.glassesCount} стаканов');
+    
+    // Сохраняем информацию о запланированных уведомлениях
+    await storageService.saveNotificationSchedule(
+      intervalHours: intervalHours,
+      lastScheduleDate: DateTime.now().toIso8601String().substring(0, 10),
+    );
+
+    try {
+      final now = DateTime.now();
+      
+      // Вычисляем доступное время (исключая тихий час)
+      final quietStartHour = settings.quietStartHour;
+      final quietEndHour = settings.quietEndHour;
+      
+      // Часы сна (например 22:00 - 8:00)
+      int quietDuration = 0;
+      if (quietEndHour > quietStartHour) {
+        // Простой случай: тихий час в пределах одних суток (8:00 - 22:00 например)
+        quietDuration = quietEndHour - quietStartHour;
+      } else {
+        // Тихий час через полночь (22:00 - 8:00)
+        quietDuration = (24 - quietStartHour) + quietEndHour;
+      }
+      
+      final availableHours = 24 - quietDuration;
+      final availableMinutes = availableHours * 60;
+      
+      AppConstants.debugLog('🕐 Доступно часов в день: $availableHours (тихий час: $quietStartHour:00-$quietEndHour:00)');
+      
+      // Интервал между уведомлениями = заданный пользователем
+      int minutesInterval = (intervalHours * 60).round();
+      if (minutesInterval < 1) {
+        minutesInterval = 1;
+      }
+      
+      // Быстрый тест: ускоряем расписание
+      if (settings.fastTestNotifications) {
+        minutesInterval = minutesInterval.clamp(1, 5);
+      }
+      
+      final maxNotificationsByTime = (availableMinutes / minutesInterval).floor();
+      final notificationsToSchedule = remainingGlasses < maxNotificationsByTime
+          ? remainingGlasses
+          : maxNotificationsByTime;
+      
+      AppConstants.debugLog('⏱️ Интервал между уведомлениями: $minutesInterval мин');
+      AppConstants.debugLog('📌 Можно запланировать: $notificationsToSchedule из $remainingGlasses');
+      
+      // Логируем текущее время для отладки
+      final nowDevice = DateTime.now();
+      final nowTz = tz.TZDateTime.now(tz.local);
+      AppConstants.debugLog('🕐 Текущее время устройства: ${nowDevice.hour}:${nowDevice.minute}:${nowDevice.second}');
+      AppConstants.debugLog('🕐 Текущее время TZ: ${nowTz.hour}:${nowTz.minute}:${nowTz.second}');
+      
+      await _logAndroidAlarmStatus('scheduleNotifications');
+      final scheduleMode = await _selectAndroidScheduleMode('scheduleNotifications');
+      AppConstants.debugLog('⚙️ Режим планирования: $scheduleMode');
+      
+      // Начинаем планирование с текущего момента (или после окончания тихого часа)
+          final bool isFastTest = settings.fastTestNotifications;
+      final int firstDelayMinutes = isFastTest
+          ? AppConstants.fastTestFirstDelayMinutes
+          : minutesInterval;
+      DateTime nextNotificationTime = now.add(Duration(minutes: firstDelayMinutes));
+
+      if (isFastTest) {
+        AppConstants.debugLog('⚡ Быстрый тест: первое уведомление через $firstDelayMinutes мин');
+      }
+      
+      int scheduledCount = 0;
+      for (int i = 0; i < notificationsToSchedule && scheduledCount < 50; i++) {
+        // Проверяем попадает ли время в тихий час
+        while (_isInQuietHours(nextNotificationTime, quietStartHour, quietEndHour)) {
+          // Пропускаем тихий час - переносим на окончание тихого часа
+          nextNotificationTime = _skipQuietHours(nextNotificationTime, quietStartHour, quietEndHour);
+        }
+        
+        // Если уведомление выходит за пределы текущих суток - пропускаем
+        if (nextNotificationTime.difference(now).inHours >= 24) {
+          break;
+        }
+        
+        final int notificationId = i;
+        final hour = nextNotificationTime.hour;
+        final minute = nextNotificationTime.minute;
+        
+        try {
+          // Используем schedule() вместо zonedSchedule() - проще и надежнее
+          final duration = nextNotificationTime.difference(DateTime.now());
+          
+          if (duration.isNegative) {
+            AppConstants.debugLog('⚠️ Уведомление #$i: время в прошлом, пропускаем');
+            continue;
+          }
+          
+          final phrase = phraseService.getRandomPhrase(settings.toxicityLevel);
+          
+          await flutterLocalNotificationsPlugin.zonedSchedule(
+            notificationId,
+            '💧 ПЕЙ ВОДУ',
+            phrase,
+            tz.TZDateTime.now(tz.local).add(duration),
+            NotificationDetails(
+              android: AndroidNotificationDetails(
+                'water_reminder',
+                'Напоминание о воде',
+                importance: Importance.max,
+                priority: Priority.max,
+              ),
+            ),
+            androidScheduleMode: scheduleMode,
+            uiLocalNotificationDateInterpretation: 
+              UILocalNotificationDateInterpretation.absoluteTime,
+          );
+          
+          AppConstants.debugLog('✅ Уведомление #$i запланировано на ${duration.inSeconds}сек (${duration.inMinutes}мин)');
+          scheduledCount++;
+        } catch (e) {
+          AppConstants.debugLog('❌ Ошибка уведомления #$notificationId: $e');
+        }
+        
+        // Следующее уведомление
+        nextNotificationTime = nextNotificationTime.add(Duration(minutes: minutesInterval));
+      }
+
+      AppConstants.debugLog('✅ Запланировано $scheduledCount уведомлений для $remainingGlasses оставшихся стаканов');
+      
+      // Выводим список запланированных уведомлений
+      await _printPendingNotifications();
+    } catch (e) {
+      AppConstants.debugLog('⚠️ Критическая ошибка при планировании уведомлений: $e');
+    }
+  }
+
+  /// Вывести список всех запланированных уведомлений (для отладки)
+  Future<void> _printPendingNotifications() async {
+    try {
+      final pending = await flutterLocalNotificationsPlugin.pendingNotificationRequests();
+      if (pending.isEmpty) {
+        AppConstants.debugLog('⚠️ В системе нет запланированных уведомлений!');
+      } else {
+        AppConstants.debugLog('📋 В системе запланировано уведомлений: ${pending.length}');
+        for (var req in pending.take(3)) {
+          AppConstants.debugLog('   - ID: ${req.id}, Title: ${req.title}, Body: ${req.body?.substring(0, 20) ?? ""}...');
+        }
+      }
+    } catch (e) {
+      AppConstants.debugLog('⚠️ Ошибка при получении списка уведомлений: $e');
+    }
+  }
+
+  /// Проверить попадает ли время в тихий час
+  bool _isInQuietHours(DateTime time, int quietStartHour, int quietEndHour) {
+    final hour = time.hour;
+    
+    if (quietEndHour > quietStartHour) {
+      // Простой случай: тихий час в пределах суток (например 8:00 - 22:00)
+      return hour >= quietStartHour && hour < quietEndHour;
+    } else {
+      // Тихий час через полночь (например 22:00 - 8:00)
+      return hour >= quietStartHour || hour < quietEndHour;
+    }
+  }
+
+  /// Пропустить тихий час и вернуть время после его окончания
+  DateTime _skipQuietHours(DateTime time, int quietStartHour, int quietEndHour) {
+    final currentHour = time.hour;
+    
+    if (quietEndHour > quietStartHour) {
+      // Простой случай
+      if (currentHour >= quietStartHour && currentHour < quietEndHour) {
+        // Переносим на окончание тихого часа
+        return DateTime(time.year, time.month, time.day, quietEndHour, 0);
+      }
+    } else {
+      // Тихий час через полночь
+      if (currentHour >= quietStartHour) {
+        // После начала тихого часа - переносим на следующий день в quietEndHour
+        return DateTime(time.year, time.month, time.day + 1, quietEndHour, 0);
+      } else if (currentHour < quietEndHour) {
+        // До окончания тихого часа - переносим на сегодня в quietEndHour
+        return DateTime(time.year, time.month, time.day, quietEndHour, 0);
+      }
+    }
+    
+    return time; // Время вне тихого часа
+  }
+
+  /// Проверить и переплануровать уведомления если изменился день
+  Future<void> _checkAndRescheduleIfNeeded() async {
+    try {
+      final storageService = StorageService();
+      
+      // Получаем дату последнего планирования
+      final lastScheduleDate = await storageService.getLastScheduleDate();
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+
+      // Если дата изменилась - переплануем
+      if (lastScheduleDate != today) {
+        AppConstants.debugLog('📅 Обнаружена смена дня, переплануем уведомления');
+        final settings = await storageService.loadSettings();
+        
+        if (settings.notificationsEnabled) {
+          await scheduleNotifications(intervalHours: settings.intervalHours);
+        } else {
+          await cancelAllNotifications();
+        }
+      }
+    } catch (e) {
+      AppConstants.debugLog('⚠️ Ошибка при проверке переплана: $e');
+    }
   }
 
   /// Отменить все уведомления
   Future<void> cancelAllNotifications() async {
-    await _notifications.cancelAll();
+    await flutterLocalNotificationsPlugin.cancelAll();
     AppConstants.debugLog('✅ Все уведомления отменены');
+  }
+
+  /// Получить информацию о запланированных уведомлениях (для отладки)
+  /// Возвращает строку с информацией о времени и количестве уведомлений
+  Future<String> getSchedulingDebugInfo() async {
+    try {
+      final storageService = StorageService();
+      final lastScheduleDate = await storageService.getLastScheduleDate();
+      final intervalHours = await storageService.getScheduledIntervalHours() ?? 0;
+      final settings = await storageService.loadSettings();
+      final drankToday = await storageService.getDrankCounter();
+      final remainingGlasses = (settings.glassesCount - drankToday).clamp(0, settings.glassesCount);
+
+      if (intervalHours == 0) {
+        return '⚠️ Уведомления не запланированы';
+      }
+
+      if (remainingGlasses == 0) {
+        return '✅ Цель достигнута! Все $drankToday стаканов выпиты. Уведомления не нужны.';
+      }
+
+      final now = DateTime.now();
+      final today = now.toIso8601String().substring(0, 10);
+
+      final status = settings.notificationsEnabled ? '✅ Включены' : '❌ Отключены';
+      final dayStatus = lastScheduleDate == today ? '✅ Сегодня' : '⚠️ $lastScheduleDate';
+
+      // Вычисляем доступное время (исключая тихий час)
+      final quietStartHour = settings.quietStartHour;
+      final quietEndHour = settings.quietEndHour;
+      
+      int quietDuration = 0;
+      if (quietEndHour > quietStartHour) {
+        quietDuration = quietEndHour - quietStartHour;
+      } else {
+        quietDuration = (24 - quietStartHour) + quietEndHour;
+      }
+      
+      final availableHours = 24 - quietDuration;
+      final availableMinutes = availableHours * 60;
+      
+      // Интервал между уведомлениями = заданный пользователем
+      int minutesInterval = (intervalHours * 60).round();
+      if (minutesInterval < 1) {
+        minutesInterval = 1;
+      }
+      if (settings.fastTestNotifications) {
+        minutesInterval = minutesInterval.clamp(1, 5);
+      }
+      
+      final maxNotificationsByTime = (availableMinutes / minutesInterval).floor();
+      final notificationsToSchedule = remainingGlasses < maxNotificationsByTime
+          ? remainingGlasses
+          : maxNotificationsByTime;
+
+      // Рассчитываем время первого и второго уведомления
+      DateTime nextNotificationTime = now.add(Duration(minutes: minutesInterval));
+      
+      // Пропускаем тихий час для первого уведомления
+      if (_isInQuietHours(nextNotificationTime, quietStartHour, quietEndHour)) {
+        nextNotificationTime = _skipQuietHours(nextNotificationTime, quietStartHour, quietEndHour);
+      }
+      
+      final firstTime = '${nextNotificationTime.hour.toString().padLeft(2, '0')}:${nextNotificationTime.minute.toString().padLeft(2, '0')}';
+      
+      nextNotificationTime = nextNotificationTime.add(Duration(minutes: minutesInterval));
+      if (_isInQuietHours(nextNotificationTime, quietStartHour, quietEndHour)) {
+        nextNotificationTime = _skipQuietHours(nextNotificationTime, quietStartHour, quietEndHour);
+      }
+      
+      final secondTime = '${nextNotificationTime.hour.toString().padLeft(2, '0')}:${nextNotificationTime.minute.toString().padLeft(2, '0')}';
+
+      final infoText = '''
+📋 ИНФОРМАЦИЯ О ЗАПЛАНИРОВАННЫХ УВЕДОМЛЕНИЯХ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Статус: $status
+Прогресс: $drankToday/${settings.glassesCount} 💧
+Осталось стаканов: $remainingGlasses
+Последнее планирование: $dayStatus
+
+⏰ ПАРАМЕТРЫ:
+Тихий час: $quietStartHour:00 - $quietEndHour:00 (исключён)
+Доступно часов: $availableHours ч
+Интервал между уведомлениями: ${(minutesInterval / 60).toStringAsFixed(1)} ч
+Запланировано уведомлений: $notificationsToSchedule
+Режим: inexact (совместим со всеми устройствами)
+
+⏰ ПРИМЕРЫ ВРЕМЕНИ:
+   1️⃣  $firstTime
+   2️⃣  $secondTime
+   ...и ещё ${(remainingGlasses - 2).clamp(0, 999)} уведомлений
+
+💡 СОВЕТ:
+   После каждого "ВЫПИЛ" уведомления переплануются
+   автоматически для оставшихся стаканов
+   и жди первого уведомления через $minutesInterval минут''';
+
+      return infoText;
+    } catch (e) {
+      return '⚠️ Ошибка при получении информации: $e';
+    }
+  }
+
+  /// Вывести информацию о запланированных уведомлениях в лог
+  Future<void> printSchedulingInfo() async {
+    final info = await getSchedulingDebugInfo();
+    AppConstants.debugLog(info);
   }
 }
