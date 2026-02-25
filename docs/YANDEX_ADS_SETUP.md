@@ -12,7 +12,7 @@
 2. Выберите платформу: **Android**
 3. Укажите:
    - **Название приложения**: DrinkWater (или ваше)
-   - **Пакет приложения**: `com.example.drinkwater` (из `android/app/build.gradle.kts`)
+    - **Пакет приложения**: `com.digitalmindtools.drinkwater` (из `android/app/build.gradle.kts`)
    - **Store URL**: пока пусто (заполните после публикации в Google Play)
 
 ### Шаг 3: Создание рекламного блока (Block)
