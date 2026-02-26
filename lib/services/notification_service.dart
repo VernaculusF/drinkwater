@@ -64,8 +64,8 @@ class NotificationService {
     // Инициализируем временные зоны
     tz_data.initializeTimeZones();
 
-    // Настройки для Android
-    const AndroidInitializationSettings androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Настройки для Android (иконка должна быть в drawable папке, без префикса и расширения)
+    const AndroidInitializationSettings androidSettings = AndroidInitializationSettings('ic_notification_water');
     
     const InitializationSettings settings = InitializationSettings(
       android: androidSettings,
@@ -199,7 +199,7 @@ class NotificationService {
       channelDescription: AppLocalizations.notificationChannelDescription,
       importance: Importance.high,
       priority: Priority.high,
-      icon: '@mipmap/ic_launcher',
+      icon: 'ic_notification_water',
       sound: null,
       vibrationPattern: withVibration ? Int64List.fromList([0, 250, 250, 250]) : null,
       playSound: withSound,
@@ -342,6 +342,7 @@ class NotificationService {
               android: AndroidNotificationDetails(
                 'water_reminder',
                 'Напоминание о воде',
+                icon: 'ic_notification_water',
                 importance: Importance.max,
                 priority: Priority.max,
               ),
@@ -486,6 +487,7 @@ class NotificationService {
             android: AndroidNotificationDetails(
               'water_reminder',
               'Напоминание о воде',
+              icon: 'ic_notification_water',
               importance: Importance.max,
               priority: Priority.max,
             ),
