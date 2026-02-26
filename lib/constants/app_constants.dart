@@ -50,6 +50,7 @@ class AppConstants {
   static const String keyNotificationVibration = 'notification_vibration';
   static const String keyLastDrinkAt = 'last_drink_at';
   static const String keyFastTestNotifications = 'fast_test_notifications';
+  static const String keyDailyHistory = 'daily_history';
   
   // Яндекс РСЯ
   // Тестовый блок для проверки интеграции

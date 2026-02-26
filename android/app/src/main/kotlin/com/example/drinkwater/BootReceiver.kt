@@ -7,7 +7,7 @@ import android.content.Intent
 /**
  * Receiver для восстановления запланированных уведомлений после перезагрузки устройства
  */
-class ScheduledNotificationBootReceiver : BroadcastReceiver() {
+class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         // Обработка запуска после перезагрузки
         // flutter_local_notifications автоматически перезапустит уведомления

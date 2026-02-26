@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_settings.dart';
+import '../models/daily_progress.dart';
 import '../constants/app_constants.dart';
 
 /// Сервис для работы с локальным хранилищем
@@ -40,6 +42,19 @@ class StorageService {
   /// Сброс дневного счётчика
   Future<void> resetDailyCounter() async {
     final today = DateTime.now().toIso8601String().substring(0, 10);
+    final lastResetDate = _prefs?.getString(AppConstants.keyLastResetDate) ?? '';
+    final previousDrank = _prefs?.getInt(AppConstants.keyDrankToday) ?? 0;
+    final previousGoal =
+        _prefs?.getInt(AppConstants.keyGlassesCount) ?? AppConstants.defaultGlassesCount;
+
+    if (lastResetDate.isNotEmpty) {
+      await recordDailyProgress(
+        date: lastResetDate,
+        drank: previousDrank,
+        goal: previousGoal,
+      );
+    }
+
     await _prefs?.setInt(AppConstants.keyDrankToday, 0);
     await _prefs?.setString(AppConstants.keyLastResetDate, today);
     await _prefs?.remove(AppConstants.keyLastDrinkAt);
@@ -107,6 +122,12 @@ class StorageService {
           AppConstants.defaultFastTestNotifications,
     );
 
+    await recordDailyProgress(
+      date: today,
+      drank: settings.drankToday,
+      goal: settings.glassesCount,
+    );
+
     _cachedSettings = settings;
     _cacheTime = now;
     return settings;
@@ -146,6 +167,12 @@ class StorageService {
     await _prefs?.setInt(AppConstants.keyDrankToday, newValue);
     final now = DateTime.now();
     await _prefs?.setInt(AppConstants.keyLastDrinkAt, now.millisecondsSinceEpoch);
+
+    await recordDailyProgress(
+      date: now.toIso8601String().substring(0, 10),
+      drank: newValue,
+      goal: _prefs?.getInt(AppConstants.keyGlassesCount) ?? AppConstants.defaultGlassesCount,
+    );
 
     if (_cachedSettings != null) {
       _cachedSettings = _cachedSettings!.copyWith(drankToday: newValue);
@@ -222,5 +249,153 @@ class StorageService {
     if (value is double) return value;
     if (value is int) return value.toDouble();
     return null;
+  }
+
+  String _formatDate(DateTime date) {
+    return date.toIso8601String().substring(0, 10);
+  }
+
+  Future<Map<String, dynamic>> _loadDailyHistory() async {
+    if (_prefs == null) await init();
+    final raw = _prefs?.getString(AppConstants.keyDailyHistory);
+    if (raw == null || raw.isEmpty) return {};
+
+    try {
+      final decoded = json.decode(raw);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  Future<void> _saveDailyHistory(Map<String, dynamic> history) async {
+    if (_prefs == null) await init();
+    await _prefs?.setString(AppConstants.keyDailyHistory, json.encode(history));
+  }
+
+  Future<void> recordDailyProgress({
+    required String date,
+    required int drank,
+    required int goal,
+  }) async {
+    final history = await _loadDailyHistory();
+    history[date] = {
+      'drank': drank,
+      'goal': goal,
+    };
+    await _saveDailyHistory(history);
+  }
+
+  Future<List<DailyProgress>> getRecentDailyProgress({
+    int days = 14,
+    int? todayDrank,
+    int? todayGoal,
+  }) async {
+    final history = await _loadDailyHistory();
+    final now = DateTime.now();
+    final List<DailyProgress> result = [];
+
+    for (int i = days - 1; i >= 0; i--) {
+      final date = now.subtract(Duration(days: i));
+      final key = _formatDate(date);
+      int drank = 0;
+      int goal = AppConstants.defaultGlassesCount;
+
+      final entry = history[key];
+      if (entry is Map<String, dynamic>) {
+        final parsed = DailyProgress.fromJson(key, entry);
+        drank = parsed.drank;
+        goal = parsed.goal > 0 ? parsed.goal : goal;
+      }
+
+      if (i == 0 && todayDrank != null && todayGoal != null) {
+        drank = todayDrank;
+        goal = todayGoal;
+      }
+
+      result.add(DailyProgress(date: key, drank: drank, goal: goal));
+    }
+
+    return result;
+  }
+
+  Future<int> getWeeklyCompleted({
+    int? todayDrank,
+    int? todayGoal,
+  }) async {
+    final history = await _loadDailyHistory();
+    final now = DateTime.now();
+    int completed = 0;
+
+    for (int i = 0; i < 7; i++) {
+      final date = now.subtract(Duration(days: i));
+      final key = _formatDate(date);
+      int drank = 0;
+      int goal = AppConstants.defaultGlassesCount;
+
+      if (i == 0 && todayDrank != null && todayGoal != null) {
+        drank = todayDrank;
+        goal = todayGoal;
+      } else {
+        final entry = history[key];
+        if (entry is Map<String, dynamic>) {
+          final parsed = DailyProgress.fromJson(key, entry);
+          drank = parsed.drank;
+          goal = parsed.goal > 0 ? parsed.goal : goal;
+        }
+      }
+
+      if (goal > 0 && drank >= goal) {
+        completed++;
+      }
+    }
+
+    return completed;
+  }
+
+  Future<int> getStreakCount({
+    int? todayDrank,
+    int? todayGoal,
+  }) async {
+    final history = await _loadDailyHistory();
+    final now = DateTime.now();
+
+    int drankToday = 0;
+    int goalToday = AppConstants.defaultGlassesCount;
+    final todayKey = _formatDate(now);
+
+    if (todayDrank != null && todayGoal != null) {
+      drankToday = todayDrank;
+      goalToday = todayGoal;
+    } else {
+      final entry = history[todayKey];
+      if (entry is Map<String, dynamic>) {
+        final parsed = DailyProgress.fromJson(todayKey, entry);
+        drankToday = parsed.drank;
+        goalToday = parsed.goal > 0 ? parsed.goal : goalToday;
+      }
+    }
+
+    final bool todayCompleted = goalToday > 0 && drankToday >= goalToday;
+    final DateTime startDate = todayCompleted ? now : now.subtract(Duration(days: 1));
+
+    int streak = 0;
+    for (int i = 0; i < 365; i++) {
+      final date = startDate.subtract(Duration(days: i));
+      final key = _formatDate(date);
+      final entry = history[key];
+      if (entry is! Map<String, dynamic>) {
+        break;
+      }
+      final parsed = DailyProgress.fromJson(key, entry);
+      if (parsed.goal > 0 && parsed.drank >= parsed.goal) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    return streak;
   }
 }

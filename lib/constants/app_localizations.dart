@@ -21,6 +21,18 @@ abstract class AppLocalizations {
   static const String done = _locale == 'ru'
     ? '✅ Зачёт! Осталось'
     : '✅ Good! {remaining} left';
+
+  static const String streakTitle = _locale == 'ru'
+    ? 'Серия'
+    : 'Streak';
+
+  static const String weekProgressTitle = _locale == 'ru'
+    ? 'Неделя'
+    : 'Week';
+
+  static const String calendarTitle = _locale == 'ru'
+    ? 'Календарь'
+    : 'Calendar';
   
   // ===== Экран настроек =====
   static const String settingsTitle = _locale == 'ru' ? 'Настройки' : 'Settings';

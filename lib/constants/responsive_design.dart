@@ -147,6 +147,57 @@ class ResponsiveDesign {
   /// Является ли это планшетом
   bool get isTablet => screenWidth >= 600 && screenWidth < 1200;
   
+  /// Ширина элемента календаря
+  double get calendarItemWidth {
+    switch (deviceType) {
+      case DeviceType.phone:
+        // Для маленьких экранов: меньше элементы
+        return screenWidth < 350 ? 38 : 46;
+      case DeviceType.tablet:
+        return 56;
+      case DeviceType.desktop:
+        return 64;
+    }
+  }
+
+  /// Высота календаря
+  double get calendarHeight {
+    switch (deviceType) {
+      case DeviceType.phone:
+        return screenWidth < 350 ? 58 : 66;
+      case DeviceType.tablet:
+        return 76;
+      case DeviceType.desktop:
+        return 84;
+    }
+  }
+
+  /// Padding для статистических карточек
+  EdgeInsets get statCardPadding {
+    switch (deviceType) {
+      case DeviceType.phone:
+        return screenWidth < 350 
+          ? const EdgeInsets.symmetric(horizontal: 8, vertical: 8)
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 10);
+      case DeviceType.tablet:
+        return const EdgeInsets.symmetric(horizontal: 16, vertical: 12);
+      case DeviceType.desktop:
+        return const EdgeInsets.symmetric(horizontal: 20, vertical: 14);
+    }
+  }
+
+  /// Размер иконки для статистических карточек
+  double get statIconSize {
+    switch (deviceType) {
+      case DeviceType.phone:
+        return screenWidth < 350 ? 20 : 24;
+      case DeviceType.tablet:
+        return 28;
+      case DeviceType.desktop:
+        return 32;
+    }
+  }
+
   /// Является ли это ландшафтной ориентацией
   bool get isLandscape => mediaQuery.orientation == Orientation.landscape;
   

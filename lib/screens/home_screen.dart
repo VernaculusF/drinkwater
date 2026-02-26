@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:yandex_mobileads/mobile_ads.dart';
 import '../models/app_settings.dart';
+import '../models/daily_progress.dart';
 import '../services/storage_service.dart';
 import '../services/phrase_service.dart';
 import '../services/notification_service.dart';
 import '../services/widget_service.dart';
-import '../services/ad_service.dart';
 import '../constants/app_constants.dart';
 import '../constants/app_localizations.dart';
 import '../constants/responsive_design.dart';
@@ -26,7 +25,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final PhraseService _phraseService = PhraseService();
   final WidgetService _widgetService = WidgetService();
   final NotificationService _notificationService = NotificationService();
-  final AdService _adService = AdService();
   
   AppSettings? _settings;
   String _currentPhrase = '';
@@ -34,9 +32,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _showConfetti = false;
   bool _isPressed = false; // Запрет повторного нажатия
   DateTime? _lastPressTime; // Время последнего нажатия
-  BannerAd? _bannerAd;
-  bool _isBannerLoaded = false;
-  String? _bannerError;
+  int _streakCount = 0;
+  int _weeklyCompleted = 0;
+  List<DailyProgress> _recentProgress = [];
   
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -67,7 +65,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _animationController.dispose();
-    _adService.disposeBanner();
     super.dispose();
   }
 
@@ -80,13 +77,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     // Инициализируем WidgetService
     await _widgetService.init();
     await _widgetService.initializeWidget();
-    
-    // Инициализируем рекламу после первого кадра (нужен MediaQuery)
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _initAds();
-      }
-    });
     
     // Проверяем и переплануем уведомления если нужно (при смене дня)
     // Это гарантирует, что если день изменился, уведомления будут переплануированы
@@ -116,6 +106,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _currentPhrase = '';
       _isLoading = false;
     });
+
+    await _loadMotivationStats();
     
     // Загружаем время последнего нажатия
     _lastPressTime = await _storage.getLastDrinkTime();
@@ -125,48 +117,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _isPressed = true; // Считаем что была нажата
       _startUnlockTimer(); // Запускаем проверку разблокировки
     }
-  }
-
-  /// Инициализация рекламы
-  Future<void> _initAds() async {
-    if (_bannerAd != null) return;
-
-    try {
-      await _adService.init();
-
-      final screenWidth = MediaQuery.of(context).size.width.toInt();
-      
-      final bannerAd = _adService.createBanner(
-        adUnitId: AppConstants.yandexAdBannerUnitId,
-        adSize: BannerAdSize.inline(
-          width: screenWidth,
-          maxHeight: 60,
-        ),
-        onAdLoaded: () {
-          setState(() {
-            _isBannerLoaded = true;
-            _bannerError = null;
-          });
-        },
-        onAdFailedToLoad: (error) {
-          print('⚠️ Не удалось загрузить баннер: $error');
-          setState(() {
-            _isBannerLoaded = false;
-            _bannerError = error;
-          });
-        },
-      );
-      if (mounted) {
-        setState(() {
-          _bannerAd = bannerAd;
-          _isBannerLoaded = false;
-          _bannerError = null;
-        });
-      }
-    } catch (e) {
-      print('⚠️ Ошибка инициализации рекламы: $e');
-    }
-
   }
 
   /// Проверка, истекло ли время (показывать ли текст)
@@ -212,6 +162,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           if (isGoalReached) _showConfetti = true;
         });
       }
+
+      await _loadMotivationStats();
       
       // Обновляем виджет БЕЗ завтра результата (async в фоне)
       _widgetService.updateWidget();
@@ -291,6 +243,181 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
+  Future<void> _loadMotivationStats() async {
+    if (_settings == null) return;
+
+    final recent = await _storage.getRecentDailyProgress(
+      days: 14,
+      todayDrank: _settings!.drankToday,
+      todayGoal: _settings!.glassesCount,
+    );
+    final streak = await _storage.getStreakCount(
+      todayDrank: _settings!.drankToday,
+      todayGoal: _settings!.glassesCount,
+    );
+    final weekly = await _storage.getWeeklyCompleted(
+      todayDrank: _settings!.drankToday,
+      todayGoal: _settings!.glassesCount,
+    );
+
+    if (mounted) {
+      setState(() {
+        _recentProgress = recent;
+        _streakCount = streak;
+        _weeklyCompleted = weekly;
+      });
+    }
+  }
+
+  String _weekdayShort(int weekday) {
+    const labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    return labels[(weekday - 1).clamp(0, 6)];
+  }
+
+  bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required IconData icon,
+    required ResponsiveDesign responsive,
+  }) {
+    final cardColor = Theme.of(context).cardColor;
+    final labelColor = Theme.of(context).textTheme.labelMedium?.color;
+    return Expanded(
+      child: Container(
+        padding: responsive.statCardPadding,
+        margin: const EdgeInsets.symmetric(horizontal: 6),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 18),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              color: AppConstants.primaryColor,
+              size: responsive.statIconSize,
+            ),
+            SizedBox(width: responsive.screenWidth < 350 ? 6 : 8),
+            Flexible(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: labelColor ?? Colors.grey[700],
+                          fontSize: responsive.screenWidth < 350 ? 11 : null,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          fontSize: responsive.bodyFontSize,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCalendar(ResponsiveDesign responsive) {
+    final now = DateTime.now();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: responsive.horizontalPadding),
+          child: Text(
+            AppLocalizations.calendarTitle,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: responsive.calendarHeight,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: responsive.horizontalPadding),
+            itemCount: _recentProgress.length,
+            itemBuilder: (context, index) {
+              final day = _recentProgress[index];
+              final isToday = _isSameDate(day.dateTime, now);
+              final completed = day.completed;
+              Color bgColor;
+
+              if (completed) {
+                bgColor = AppConstants.successColor;
+              } else if (isToday) {
+                bgColor = AppConstants.warningColor;
+              } else {
+                bgColor = Colors.grey[300]!;
+              }
+
+              final itemWidth = responsive.calendarItemWidth;
+              final isSmallScreen = responsive.screenWidth < 350;
+
+              return Container(
+                width: itemWidth,
+                margin: EdgeInsets.only(right: isSmallScreen ? 6 : 8),
+                padding: EdgeInsets.symmetric(vertical: isSmallScreen ? 4 : 6),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _weekdayShort(day.dateTime.weekday),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: completed || isToday ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.w600,
+                            fontSize: isSmallScreen ? 10 : null,
+                          ),
+                    ),
+                    SizedBox(height: isSmallScreen ? 2 : 4),
+                    Text(
+                      '${day.dateTime.day}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: completed || isToday ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontSize: isSmallScreen ? 14 : null,
+                          ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading || _settings == null) {
@@ -362,6 +489,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+
+                SizedBox(height: responsive.spacing),
+
+                // Мотивация и прогресс
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: responsive.horizontalPadding),
+                  child: Row(
+                    children: [
+                      _buildStatCard(
+                        title: AppLocalizations.streakTitle,
+                        value: '$_streakCount',
+                        icon: Icons.local_fire_department,
+                        responsive: responsive,
+                      ),
+                      _buildStatCard(
+                        title: AppLocalizations.weekProgressTitle,
+                        value: '$_weeklyCompleted/7',
+                        icon: Icons.calendar_today,
+                        responsive: responsive,
+                      ),
+                    ],
+                  ),
+                ),
+
+                SizedBox(height: responsive.spacing),
+
+                _buildCalendar(responsive),
 
                 const Spacer(),
 
@@ -439,55 +593,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ),
                     ),
                   ),
-
-                // Баннер Яндекс РСЯ
-                if (_bannerAd != null)
-                  Container(
-                    alignment: Alignment.center,
-                    height: 60,
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        AdWidget(bannerAd: _bannerAd!),
-                        if (!_isBannerLoaded)
-                          Text(
-                            _bannerError == null
-                                ? 'Загрузка рекламы...'
-                                : 'Ошибка рекламы: $_bannerError',
-                            style: TextStyle(
-                              color: Colors.grey[500],
-                              fontSize: 12,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                      ],
-                    ),
-                  )
-                else
-                  Container(
-                    height: 60,
-                    margin: const EdgeInsets.symmetric(horizontal: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.grey[200],
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Center(
-                      child: Text(
-                        'Загрузка рекламы...',
-                        style: TextStyle(
-                          color: Colors.grey[500],
-                          fontSize: 12,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 8),
               ],
             ),
           ),

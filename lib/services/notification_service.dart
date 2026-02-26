@@ -47,6 +47,7 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _notifications = FlutterLocalNotificationsPlugin();
   final PhraseService _phraseService = PhraseService();
   bool _initialized = false;
+  bool _permissionRequesting = false;
   
   // Для тестирования: позволяем вставлять mock плагин
   late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = _notifications;
@@ -134,16 +135,47 @@ class NotificationService {
   Future<bool> requestPermission() async {
     if (!_initialized) await init();
 
+    // Если уже идет запрос разрешений - возвращаем true
+    if (_permissionRequesting) {
+      AppConstants.debugLog('⚠️ Запрос разрешений уже выполняется, пропускаем');
+      return true;
+    }
+
     final androidImplementation = flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     
     if (androidImplementation != null) {
-      // Запрашиваем разрешение на уведомления (Android 13+)
-      final notifGranted = await androidImplementation.requestNotificationsPermission();
+      _permissionRequesting = true;
+      bool notifGranted = true;
+      bool exactAlarmGranted = true;
       
-      // Запрашиваем разрешение на точное планирование (Android 12+)
-      final exactAlarmGranted = await androidImplementation.requestExactAlarmsPermission();
+      try {
+        // Запрашиваем разрешение на уведомления (Android 13+)
+        try {
+          final result = await androidImplementation.requestNotificationsPermission();
+          notifGranted = result ?? true;
+          AppConstants.debugLog('✅ Разрешение на уведомления: $notifGranted');
+        } catch (e) {
+          AppConstants.debugLog('⚠️ Ошибка запроса разрешения на уведомления: $e');
+          // Продолжаем выполнение, считаем что разрешение получено
+        }
+        
+        // Задержка между запросами, чтобы избежать конфликта
+        await Future.delayed(const Duration(seconds: 1));
+        
+        // Запрашиваем разрешение на точное планирование (Android 12+)
+        try {
+          final result = await androidImplementation.requestExactAlarmsPermission();
+          exactAlarmGranted = result ?? true;
+          AppConstants.debugLog('✅ Разрешение на точное планирование: $exactAlarmGranted');
+        } catch (e) {
+          AppConstants.debugLog('⚠️ Ошибка запроса разрешения на точные alarm: $e');
+          // Продолжаем выполнение, считаем что разрешение получено
+        }
+      } finally {
+        _permissionRequesting = false;
+      }
       
-      return (notifGranted ?? true) && (exactAlarmGranted ?? true);
+      return notifGranted && exactAlarmGranted;
     }
     
     return true; // Для версий ниже Android 13 разрешение не требуется
@@ -360,7 +392,10 @@ class NotificationService {
       } else {
         AppConstants.debugLog('📋 В системе запланировано уведомлений: ${pending.length}');
         for (var req in pending.take(3)) {
-          AppConstants.debugLog('   - ID: ${req.id}, Title: ${req.title}, Body: ${req.body?.substring(0, 20) ?? ""}...');
+          final bodyPreview = req.body != null && req.body!.length > 20
+              ? req.body!.substring(0, 20)
+              : (req.body ?? "");
+          AppConstants.debugLog('   - ID: ${req.id}, Title: ${req.title}, Body: $bodyPreview...');
         }
       }
     } catch (e) {
