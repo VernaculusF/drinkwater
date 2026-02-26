@@ -339,16 +339,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
 
-                  // Быстрый тест уведомлений
-                  SwitchListTile(
-                    title: const Text('Быстрый тест уведомлений'),
-                    subtitle: const Text('Первое через 1 мин, дальше 1-5 мин'),
-                    value: _settings.fastTestNotifications,
-                    onChanged: (value) {
-                      setState(() {
-                        _settings = _settings.copyWith(fastTestNotifications: value);
-                      });
-                    },
+                  // Тест уведомлений каждую минуту
+                  ListTile(
+                    title: const Text('Тест уведомлений'),
+                    subtitle: const Text('Запустить тестовые уведомления каждую минуту'),
+                    trailing: ElevatedButton(
+                      onPressed: () async {
+                        await _notificationService.scheduleTestNotificationsEveryMinute();
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Запланировано 5 тестовых уведомлений с интервалом 1 минута'),
+                              duration: Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      },
+                      child: const Text('Запустить'),
+                    ),
                   ),
                 ],
               ),

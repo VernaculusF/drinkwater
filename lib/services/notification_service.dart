@@ -296,11 +296,6 @@ class NotificationService {
         minutesInterval = 1;
       }
       
-      // Быстрый тест: ускоряем расписание
-      if (settings.fastTestNotifications) {
-        minutesInterval = minutesInterval.clamp(1, 5);
-      }
-      
       final maxNotificationsByTime = (availableMinutes / minutesInterval).floor();
       final notificationsToSchedule = remainingGlasses < maxNotificationsByTime
           ? remainingGlasses
@@ -310,15 +305,7 @@ class NotificationService {
       AppConstants.debugLog('📌 Можно запланировать: $notificationsToSchedule из $remainingGlasses');
       
       // Начинаем планирование с текущего момента (или после окончания тихого часа)
-          final bool isFastTest = settings.fastTestNotifications;
-      final int firstDelayMinutes = isFastTest
-          ? AppConstants.fastTestFirstDelayMinutes
-          : minutesInterval;
-      DateTime nextNotificationTime = now.add(Duration(minutes: firstDelayMinutes));
-
-      if (isFastTest) {
-        AppConstants.debugLog('⚡ Быстрый тест: первое уведомление через $firstDelayMinutes мин');
-      }
+      DateTime nextNotificationTime = now.add(Duration(minutes: minutesInterval));
       
       int scheduledCount = 0;
       for (int i = 0; i < notificationsToSchedule && scheduledCount < 50; i++) {
@@ -465,6 +452,59 @@ class NotificationService {
     }
   }
 
+  /// Запланировать тестовые уведомления каждую минуту (для отладки)
+  /// Создаёт 5 уведомлений с интервалом в 1 минуту
+  Future<void> scheduleTestNotificationsEveryMinute() async {
+    if (!_initialized) await init();
+    
+    AppConstants.debugLog('🧪 Запуск тестовых уведомлений каждую минуту...');
+    
+    // Отменяем все предыдущие уведомления
+    await flutterLocalNotificationsPlugin.cancelAll();
+    AppConstants.debugLog('🗑️ Все старые уведомления отменены');
+    
+    final storageService = StorageService();
+    final settings = await storageService.loadSettings();
+    
+    try {
+      final now = DateTime.now();
+      const testNotificationsCount = 5; // Количество тестовых уведомлений
+      const intervalMinutes = 1; // Интервал в 1 минуту
+      
+      for (int i = 0; i < testNotificationsCount; i++) {
+        final notificationTime = now.add(Duration(minutes: (i + 1) * intervalMinutes));
+        final duration = notificationTime.difference(DateTime.now());
+        
+        final phrase = phraseService.getRandomPhrase(settings.toxicityLevel);
+        
+        await flutterLocalNotificationsPlugin.zonedSchedule(
+          i,
+          '💧 ПЕЙ ВОДУ (ТЕСТ)',
+          phrase,
+          tz.TZDateTime.now(tz.local).add(duration),
+          NotificationDetails(
+            android: AndroidNotificationDetails(
+              'water_reminder',
+              'Напоминание о воде',
+              importance: Importance.max,
+              priority: Priority.max,
+            ),
+          ),
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: 
+            UILocalNotificationDateInterpretation.absoluteTime,
+        );
+        
+        AppConstants.debugLog('✅ Тестовое уведомление #$i запланировано на ${duration.inMinutes} мин');
+      }
+      
+      AppConstants.debugLog('✅ Запланировано $testNotificationsCount тестовых уведомлений');
+      await _printPendingNotifications();
+    } catch (e) {
+      AppConstants.debugLog('❌ Ошибка при планировании тестовых уведомлений: $e');
+    }
+  }
+
   /// Отменить все уведомления
   Future<void> cancelAllNotifications() async {
     await flutterLocalNotificationsPlugin.cancelAll();
@@ -514,9 +554,6 @@ class NotificationService {
       int minutesInterval = (intervalHours * 60).round();
       if (minutesInterval < 1) {
         minutesInterval = 1;
-      }
-      if (settings.fastTestNotifications) {
-        minutesInterval = minutesInterval.clamp(1, 5);
       }
       
       final maxNotificationsByTime = (availableMinutes / minutesInterval).floor();

@@ -68,7 +68,7 @@ class AppConstants {
   };
   
   // Интервалы напоминаний (в часах)
-  static const List<double> availableIntervals = [5 / 60.0, 1, 2, 3];
+  static const List<double> availableIntervals = [1, 2, 3];
   
   /// Форматирование интервала для отображения
   static String formatInterval(double hours) {

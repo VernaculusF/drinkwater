@@ -118,8 +118,6 @@ class StorageService {
       notificationsEnabled: _prefs?.getBool(AppConstants.keyNotificationsEnabled) ?? true,
       notificationSound: _prefs?.getBool(AppConstants.keyNotificationSound) ?? true,
       notificationVibration: _prefs?.getBool(AppConstants.keyNotificationVibration) ?? true,
-      fastTestNotifications: _prefs?.getBool(AppConstants.keyFastTestNotifications) ??
-          AppConstants.defaultFastTestNotifications,
     );
 
     await recordDailyProgress(
@@ -152,7 +150,6 @@ class StorageService {
     await _prefs?.setBool(AppConstants.keyNotificationsEnabled, settings.notificationsEnabled);
     await _prefs?.setBool(AppConstants.keyNotificationSound, settings.notificationSound);
     await _prefs?.setBool(AppConstants.keyNotificationVibration, settings.notificationVibration);
-    await _prefs?.setBool(AppConstants.keyFastTestNotifications, settings.fastTestNotifications);
 
     _cachedSettings = settings;
     _cacheTime = DateTime.now();

@@ -172,7 +172,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             const Text('4 стакана'),
-                            const Text('(=16 стаканов)'),
+                            const Text('16 стаканов'),
                           ],
                         ),
                       ],
@@ -194,18 +194,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           // Кнопки навигации
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                ElevatedButton(
-                  onPressed: () {},
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[300],
+                Flexible(
+                  child: ElevatedButton(
+                    onPressed: _complete,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[300],
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    child: const Text(
+                      'Пропустить',
+                      style: TextStyle(color: Colors.black),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  child: const Text('Пропустить', style: TextStyle(color: Colors.black)),
                 ),
+                const SizedBox(width: 12),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     // Индикаторы страниц
                     Container(
@@ -231,12 +240,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ],
                 ),
-                ElevatedButton(
-                  onPressed: _nextPage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppConstants.primaryColor,
+                const SizedBox(width: 12),
+                Flexible(
+                  child: ElevatedButton(
+                    onPressed: _nextPage,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppConstants.primaryColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    child: const Text(
+                      'Далее',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  child: const Text('Далее'),
                 ),
               ],
             ),
@@ -305,18 +321,27 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           // Кнопки навигации
           Padding(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(16),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                ElevatedButton(
-                  onPressed: _previousPage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.grey[300],
+                Flexible(
+                  child: ElevatedButton(
+                    onPressed: _previousPage,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey[300],
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    child: const Text(
+                      'Назад',
+                      style: TextStyle(color: Colors.black),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  child: const Text('Назад', style: TextStyle(color: Colors.black)),
                 ),
+                const SizedBox(width: 12),
                 Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     // Индикаторы страниц
                     Container(
@@ -342,12 +367,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                   ],
                 ),
-                ElevatedButton(
-                  onPressed: _complete,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppConstants.primaryColor,
+                const SizedBox(width: 12),
+                Flexible(
+                  child: ElevatedButton(
+                    onPressed: _complete,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppConstants.primaryColor,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                    child: const Text(
+                      'Готово',
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  child: const Text('Готово'),
                 ),
               ],
             ),
