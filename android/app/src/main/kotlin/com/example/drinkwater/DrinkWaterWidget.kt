@@ -1,4 +1,4 @@
-package com.digitalmindtools.drinkwater
+package com.example.drinkwater
 
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -50,5 +50,3 @@ class DrinkWaterWidget : AppWidgetProvider() {
         }
     }
 }
-
-
